@@ -3,7 +3,7 @@ import { ethers } from "ethers";
 export function hashCertificate(cert) {
   return ethers.solidityPackedKeccak256(
     ["string", "string", "string", "uint256"],
-    [cert.name, cert.degree, cert.university, cert.year]
+    [cert.name.trim(), cert.degree.trim(), cert.university.trim(), cert.year]
   );
 }
 
