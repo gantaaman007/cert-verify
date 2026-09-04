@@ -472,7 +472,7 @@ const loadBatchHistory = async () => {
   setLoadingHistory(true);
   try {
     const apiKey = "H57R9V3NSAGCSUE7MKRPE3JB64HF21C8QS";
-    const url = `https://api-sepolia.etherscan.io/api?module=logs&action=getLogs&address=${CONTRACT_ADDRESS}&topic0=0x9d115c21e92347f43a5a77bc34f9d83e2638b1aaab21840c87251322d239fe4b&fromBlock=11628001&toBlock=latest&apikey=${apiKey}`;
+    const url = `https://api.etherscan.io/v2/api?chainid=11155111&module=logs&action=getLogs&address=${CONTRACT_ADDRESS}&topic0=0x9d115c21e92347f43a5a77bc34f9d83e2638b1aaab21840c87251322d239fe4b&fromBlock=11628001&toBlock=latest&apikey=${apiKey}`;
     const response = await fetch(url);
     const data = await response.json();
 
