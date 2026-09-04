@@ -506,8 +506,8 @@ const loadBatchHistory = async () => {
   } catch {}
   return {
     batchId,
-    root:     log.topics[1] || "",
-    issuedBy: "0x" + log.topics[2]?.slice(26),
+    root:     log.topics[1] ? log.topics[1].toString() : "",
+    issuedBy: log.topics[2] ? "0x" + log.topics[2].slice(26) : "",
     issuedAt: parseInt(log.timeStamp, 16)
   };
 }));
