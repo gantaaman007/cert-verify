@@ -469,26 +469,40 @@ export default function App() {
     setLoading(false);
   };
 
-  const loadBatchHistory = async () => {
-    setLoadingHistory(true);
-    try {
-      const provider = new ethers.JsonRpcProvider(
-        "https://eth-sepolia.g.alchemy.com/v2/alch_mslyZ-pynP9e20GEMgFDp"
-      );
-      const readContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
-      const events = await readContract.queryFilter("BatchIssued", 0, "latest");
-      const history = events.map(e => ({
-        batchId:  e.args[0],
+const loadBatchHistory = async () => {
+  setLoadingHistory(true);
+  try {
+    const provider = new ethers.JsonRpcProvider(
+      "https://eth-sepolia.g.alchemy.com/v2/alch_mslyZ-pynP9e20GEMgFDp"
+    );
+    const abi = [
+      "event BatchIssued(string indexed batchId, bytes32 merkleRoot, address indexed issuedBy, uint256 issuedAt)",
+      "event BatchExecuted(uint256 indexed proposalId, string batchId)"
+    ];
+    const readContract = new ethers.Contract(CONTRACT_ADDRESS, abi, provider);
+    const filter = readContract.filters.BatchIssued();
+    const events = await readContract.queryFilter(filter, 0, "latest");
+    console.log("events found:", events.length, events);
+    const history = await Promise.all(events.map(async (e) => {
+      const tx = await provider.getTransactionReceipt(e.transactionHash);
+      return {
+        batchId:  e.args[0] || "unknown",
         root:     e.args[1],
         issuedBy: e.args[2],
-        issuedAt: e.args[3]
-      }));
-      setBatchHistory(history.reverse());
-    } catch (e) {
-      showMsg(e.message, "error");
+        issuedAt: e.args[3],
+        txHash:   e.transactionHash
+      };
+    }));
+    setBatchHistory(history.reverse());
+    if (history.length === 0) {
+      showMsg("No batches found on this contract.", "warning");
     }
-    setLoadingHistory(false);
-  };
+  } catch (e) {
+    console.error(e);
+    showMsg(e.message, "error");
+  }
+  setLoadingHistory(false);
+};
 
   return (
     <Box sx={{ minHeight: "100vh", background: "#0f1117", color: "#e8eaf0" }}>
