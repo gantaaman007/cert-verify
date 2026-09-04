@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ethers } from "ethers";
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "./contract";
 import { hashCertificate, buildMerkleTree, getMerkleProof, verifyMerkleProof } from "./utils/merkle";
@@ -119,7 +119,6 @@ async function generateCertificatePDF(student, batchId, certHash, merkleRoot, is
   doc.setTextColor(122, 128, 153);
   doc.setFontSize(7);
   doc.setFont("helvetica", "normal");
-
   doc.text("BATCH ID", 22, 116);
   doc.setTextColor(200, 200, 220);
   doc.setFontSize(7.5);
@@ -200,11 +199,99 @@ export default function App() {
   const [issuerAddress, setIssuerAddress]   = useState("");
   const [proposalId, setProposalId]         = useState("");
   const [requiredApprovals, setRequiredApprovals] = useState(1);
+  const [batchHistory, setBatchHistory]     = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   const showMsg = (text, severity = "success") => {
     setMessage({ text, severity });
     setTimeout(() => setMessage(null), 6000);
   };
+
+  const verifyCertificate = async (
+    overrideBatchId,
+    overrideName,
+    overrideDegree,
+    overrideUni,
+    overrideYear,
+    overrideProof,
+    overrideLeaf
+  ) => {
+    setLoading(true);
+    setVerifyResult(null);
+    try {
+      const provider = new ethers.JsonRpcProvider(
+        "https://eth-sepolia.g.alchemy.com/v2/alch_mslyZ-pynP9e20GEMgFDp"
+      );
+      const readContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+      const cert = {
+        name:       (overrideName       || verifyCertName).trim(),
+        degree:     (overrideDegree     || verifyDegree).trim(),
+        university: (overrideUni        || verifyUni).trim(),
+        year:       parseInt(overrideYear || verifyYear)
+      };
+      const useBatchId = (overrideBatchId || verifyBatchId).trim();
+      const certHash = hashCertificate(cert);
+      const result = await readContract.verifyCertificate(useBatchId, certHash);
+
+      if (!result.valid) {
+        setVerifyResult({
+          valid: false, revoked: result.revoked,
+          reason: result.reason || "Certificate not valid",
+          merkleRoot: result.merkleRoot, issuedAt: result.issuedAt,
+          issuedBy: result.issuedBy, certHash
+        });
+        setLoading(false);
+        return;
+      }
+
+      const urlProof = overrideProof || params.get("proof");
+      const urlLeaf  = overrideLeaf  || params.get("leaf");
+      let merkleValid = false;
+
+      if (urlProof && urlLeaf) {
+        const proof = JSON.parse(decodeURIComponent(urlProof));
+        merkleValid = verifyMerkleProof(urlLeaf, proof, result.merkleRoot);
+      } else {
+        const stored = getStoredProof(useBatchId, cert);
+        if (stored) {
+          const batchData = JSON.parse(localStorage.getItem(`batch-${useBatchId}`));
+          const allLeaves = Object.values(batchData)
+            .sort((a, b) => a.index - b.index)
+            .map(l => l.leaf);
+          const proof = getMerkleProof(allLeaves, stored.index);
+          merkleValid = verifyMerkleProof(certHash, proof, result.merkleRoot);
+        } else {
+          merkleValid = true;
+        }
+      }
+
+      setVerifyResult({
+        valid: merkleValid, revoked: false,
+        reason: merkleValid ? "" : "Merkle proof failed — certificate not part of this batch",
+        merkleRoot: result.merkleRoot, issuedAt: result.issuedAt,
+        issuedBy: result.issuedBy, certHash, cert
+      });
+    } catch (e) {
+      showMsg(e.message, "error");
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const bId    = p.get("batchId");
+    const name   = p.get("name");
+    const degree = p.get("degree");
+    const uni    = p.get("university");
+    const year   = p.get("year");
+    const proof  = p.get("proof");
+    const leaf   = p.get("leaf");
+    if (bId && name && proof) {
+      setTimeout(() => {
+        verifyCertificate(bId, name, degree, uni, year, proof, leaf);
+      }, 800);
+    }
+  }, []);
 
   const connectWallet = async () => {
     try {
@@ -332,69 +419,6 @@ export default function App() {
     }
   };
 
-  const verifyCertificate = async () => {
-    setLoading(true);
-    setVerifyResult(null);
-    try {
-      const provider = new ethers.JsonRpcProvider(
-        "https://eth-sepolia.g.alchemy.com/v2/alch_mslyZ-pynP9e20GEMgFDp"
-      );
-      const readContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
-      const cert = {
-        name:       verifyCertName.trim(),
-        degree:     verifyDegree.trim(),
-        university: verifyUni.trim(),
-        year:       parseInt(verifyYear)
-      };
-      const certHash = hashCertificate(cert);
-      const result = await readContract.verifyCertificate(verifyBatchId.trim(), certHash);
-
-      if (!result.valid) {
-        setVerifyResult({
-          valid: false, revoked: result.revoked,
-          reason: result.reason || "Certificate not valid",
-          merkleRoot: result.merkleRoot, issuedAt: result.issuedAt,
-          issuedBy: result.issuedBy, certHash
-        });
-        setLoading(false);
-        return;
-      }
-
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlProof  = urlParams.get("proof");
-      const urlLeaf   = urlParams.get("leaf");
-
-      let merkleValid = false;
-
-      if (urlProof && urlLeaf) {
-        const proof = JSON.parse(decodeURIComponent(urlProof));
-        merkleValid = verifyMerkleProof(urlLeaf, proof, result.merkleRoot);
-      } else {
-        const stored = getStoredProof(verifyBatchId.trim(), cert);
-        if (stored) {
-          const batchData = JSON.parse(localStorage.getItem(`batch-${verifyBatchId.trim()}`));
-          const allLeaves = Object.values(batchData)
-            .sort((a, b) => a.index - b.index)
-            .map(l => l.leaf);
-          const proof = getMerkleProof(allLeaves, stored.index);
-          merkleValid = verifyMerkleProof(certHash, proof, result.merkleRoot);
-        } else {
-          merkleValid = true;
-        }
-      }
-
-      setVerifyResult({
-        valid: merkleValid, revoked: false,
-        reason: merkleValid ? "" : "Merkle proof failed — certificate not part of this batch",
-        merkleRoot: result.merkleRoot, issuedAt: result.issuedAt,
-        issuedBy: result.issuedBy, certHash, cert
-      });
-    } catch (e) {
-      showMsg(e.message, "error");
-    }
-    setLoading(false);
-  };
-
   const downloadVerifiedPDF = async () => {
     if (!verifyResult?.valid) return;
     await generateCertificatePDF(
@@ -445,6 +469,27 @@ export default function App() {
     setLoading(false);
   };
 
+  const loadBatchHistory = async () => {
+    setLoadingHistory(true);
+    try {
+      const provider = new ethers.JsonRpcProvider(
+        "https://eth-sepolia.g.alchemy.com/v2/alch_mslyZ-pynP9e20GEMgFDp"
+      );
+      const readContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+      const events = await readContract.queryFilter("BatchIssued", 0, "latest");
+      const history = events.map(e => ({
+        batchId:  e.args[0],
+        root:     e.args[1],
+        issuedBy: e.args[2],
+        issuedAt: e.args[3]
+      }));
+      setBatchHistory(history.reverse());
+    } catch (e) {
+      showMsg(e.message, "error");
+    }
+    setLoadingHistory(false);
+  };
+
   return (
     <Box sx={{ minHeight: "100vh", background: "#0f1117", color: "#e8eaf0" }}>
       <Box sx={{ background: "#171b26", borderBottom: "1px solid #2a2f42", px: 4, py: 2,
@@ -482,8 +527,18 @@ export default function App() {
         <TabPanel value={tab} index={0}>
           <Typography variant="h6" sx={{ mb: 2, color: "#e8eaf0" }}>Verify a Certificate</Typography>
           <Typography variant="body2" sx={{ color: "#7a8099", mb: 3 }}>
-            No wallet needed. Scan the QR code on a certificate or enter details manually.
+            Scan the QR code on a certificate for instant verification, or enter details manually.
           </Typography>
+
+          {loading && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
+              <CircularProgress size={20} sx={{ color: "#a78bfa" }} />
+              <Typography variant="body2" sx={{ color: "#a78bfa" }}>
+                Verifying on blockchain...
+              </Typography>
+            </Box>
+          )}
+
           <Stack spacing={2}>
             <TextField label="Batch ID" value={verifyBatchId}
               onChange={e => setVerifyBatchId(e.target.value)} fullWidth sx={inputSx} />
@@ -495,14 +550,15 @@ export default function App() {
               onChange={e => setVerifyUni(e.target.value)} fullWidth sx={inputSx} />
             <TextField label="Year" type="number" value={verifyYear}
               onChange={e => setVerifyYear(e.target.value)} fullWidth sx={inputSx} />
-            <Button variant="contained" onClick={verifyCertificate} disabled={loading}
+            <Button variant="contained"
+              onClick={() => verifyCertificate()} disabled={loading}
               sx={{ background: "#a78bfa", "&:hover": { background: "#7c3aed" } }}>
               {loading ? <CircularProgress size={20} color="inherit" /> : "Verify Certificate"}
             </Button>
 
             <Card sx={{ background: "#1e2333", border: "1px dashed #2a2f42", p: 2 }}>
               <Typography variant="caption" sx={{ color: "#7a8099", display: "block", mb: 1 }}>
-                Optional — for advanced verification: paste proof JSON or import file
+                Optional — paste proof JSON or import file for advanced Merkle verification:
               </Typography>
               <TextField
                 placeholder='Paste proof JSON {"batchId": "...", "proofData": {...}}'
@@ -638,12 +694,13 @@ export default function App() {
                 {proofJson && (
                   <Box sx={{ mt: 2 }}>
                     <Typography variant="caption" sx={{ color: "#fbbf24", display: "block", mb: 1 }}>
-                      Backup proof JSON — copy and save this if needed:
+                      Backup proof JSON — copy and save if needed:
                     </Typography>
                     <Box sx={{ background: "#0a0d14", p: 2, borderRadius: 1,
                       maxHeight: 100, overflow: "auto" }}>
                       <Typography variant="caption" sx={{
-                        fontFamily: "monospace", color: "#7a8099", fontSize: 10, whiteSpace: "pre" }}>
+                        fontFamily: "monospace", color: "#7a8099",
+                        fontSize: 10, whiteSpace: "pre" }}>
                         {proofJson}
                       </Typography>
                     </Box>
@@ -696,6 +753,7 @@ export default function App() {
         <TabPanel value={tab} index={3}>
           <Typography variant="h6" sx={{ mb: 2, color: "#e8eaf0" }}>Admin — Manage Issuers</Typography>
           <Stack spacing={3}>
+
             <Card sx={{ background: "#1e2333", border: "1px solid #2a2f42", p: 2 }}>
               <Typography variant="subtitle2" sx={{ color: "#a78bfa", mb: 2 }}>Add Issuer</Typography>
               <Stack spacing={2}>
@@ -726,6 +784,55 @@ export default function App() {
                 Set to 1 for single approval. Set to 2 for 2-of-N multisig.
               </Typography>
             </Card>
+
+            <Card sx={{ background: "#1e2333", border: "1px solid #2a2f42", p: 2 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+                <Typography variant="subtitle2" sx={{ color: "#a78bfa" }}>
+                  All Issued Batches
+                </Typography>
+                <Button size="small" variant="outlined" onClick={loadBatchHistory}
+                  disabled={loadingHistory}
+                  sx={{ borderColor: "#a78bfa", color: "#a78bfa" }}>
+                  {loadingHistory
+                    ? <CircularProgress size={16} color="inherit" />
+                    : "Load History"}
+                </Button>
+              </Stack>
+              {batchHistory.length === 0 ? (
+                <Typography variant="caption" sx={{ color: "#7a8099" }}>
+                  Click Load History to fetch all batches from the blockchain.
+                </Typography>
+              ) : (
+                <Stack spacing={1}>
+                  {batchHistory.map((b, i) => (
+                    <Card key={i} sx={{ background: "#171b26", border: "1px solid #2a2f42", p: 1.5 }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                        <Box>
+                          <Typography variant="body2" sx={{ color: "#a78bfa", fontWeight: 600 }}>
+                            {b.batchId}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: "#7a8099", display: "block" }}>
+                            Issued: {new Date(Number(b.issuedAt) * 1000).toLocaleString()}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: "#7a8099", display: "block" }}>
+                            By: {b.issuedBy.substring(0, 10)}...
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: "#7a8099", display: "block" }}>
+                            Root: {b.root.substring(0, 20)}...
+                          </Typography>
+                        </Box>
+                        <Button size="small" variant="outlined"
+                          onClick={() => { setVerifyBatchId(b.batchId); setTab(0); }}
+                          sx={{ borderColor: "#2a2f42", color: "#7a8099", fontSize: 10 }}>
+                          Go to Verify
+                        </Button>
+                      </Stack>
+                    </Card>
+                  ))}
+                </Stack>
+              )}
+            </Card>
+
           </Stack>
         </TabPanel>
 
