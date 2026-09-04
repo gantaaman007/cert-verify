@@ -479,8 +479,8 @@ const loadBatchHistory = async () => {
     ];
     const readContract = new ethers.Contract(CONTRACT_ADDRESS, abi, provider);
     const latest = await provider.getBlockNumber();
-    const chunkSize = 2000;
     const deployBlock = 11628001;
+    const chunkSize = 500;
     let allEvents = [];
 
     for (let start = deployBlock; start <= latest; start += chunkSize) {
@@ -489,10 +489,20 @@ const loadBatchHistory = async () => {
         const events = await readContract.queryFilter(
           readContract.filters.BatchIssued(), start, end
         );
-        allEvents = [...allEvents, ...events];
-      } catch {
-        // skip failed chunk
+        if (events.length > 0) {
+          allEvents = [...allEvents, ...events];
+        }
+      } catch (err) {
+        console.log(`chunk ${start}-${end} failed:`, err.message);
       }
+    }
+
+    console.log("Total events found:", allEvents.length);
+
+    if (allEvents.length === 0) {
+      showMsg("No batches found on this contract.", "warning");
+      setLoadingHistory(false);
+      return;
     }
 
     const history = allEvents.map(e => ({
@@ -503,12 +513,9 @@ const loadBatchHistory = async () => {
     }));
 
     setBatchHistory(history.reverse());
-    if (history.length === 0) {
-      showMsg("No batches found.", "warning");
-    } else {
-      showMsg(`Found ${history.length} batch(es).`);
-    }
+    showMsg(`Found ${history.length} batch(es).`);
   } catch (e) {
+    console.error(e);
     showMsg(e.message, "error");
   }
   setLoadingHistory(false);
