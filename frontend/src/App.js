@@ -502,6 +502,7 @@ const loadBatchHistory = async () => {
           try {
             const parsed = iface.parseLog(rlog);
             if (parsed && parsed.name === "BatchIssued") {
+              console.log("parsed args:", parsed.args, typeof parsed.args[0], JSON.stringify(parsed.args));
               batchId  = parsed.args.batchId   || parsed.args[0]?.toString() || log.transactionHash.substring(0, 10);
               root     = parsed.args.merkleRoot || parsed.args[1]?.toString() || root;
               issuedBy = parsed.args.issuedBy  || parsed.args[2]?.toString() || issuedBy;
