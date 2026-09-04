@@ -468,67 +468,63 @@ export default function App() {
     setLoading(false);
   };
 
-const loadBatchHistory = async () => {
-  setLoadingHistory(true);
-  try {
-    const provider = new ethers.JsonRpcProvider(
-      "https://eth-sepolia.g.alchemy.com/v2/alch_mslyZ-pynP9e20GEMgFDp"
-    );
-    const apiKey = "H57R9V3NSAGCSUE7MKRPE3JB64HF21C8QS";
-    const url = `https://api.etherscan.io/v2/api?chainid=11155111&module=logs&action=getLogs&address=${CONTRACT_ADDRESS}&topic0=0x9d115c21e92347f43a5a77bc34f9d83e2638b1aaab21840c87251322d239fe4b&fromBlock=11628001&toBlock=latest&apikey=${apiKey}`;
-    const response = await fetch(url);
-    const data = await response.json();
-    console.log("Etherscan response:", data);
+  const loadBatchHistory = async () => {
+    setLoadingHistory(true);
+    try {
+      const apiKey = "H57R9V3NSAGCSUE7MKRPE3JB64HF21C8QS";
+      const logsUrl = `https://api.etherscan.io/v2/api?chainid=11155111&module=logs&action=getLogs&address=${CONTRACT_ADDRESS}&topic0=0x9d115c21e92347f43a5a77bc34f9d83e2638b1aaab21840c87251322d239fe4b&fromBlock=11628001&toBlock=latest&apikey=${apiKey}`;
+      const logsRes  = await fetch(logsUrl);
+      const logsData = await logsRes.json();
 
-    if (data.status === "0") {
-      showMsg("No batches found.", "warning");
-      setLoadingHistory(false);
-      return;
-    }
+      if (logsData.status === "0") {
+        showMsg("No batches found.", "warning");
+        setLoadingHistory(false);
+        return;
+      }
 
-    const iface = new ethers.Interface([
-      "event BatchIssued(string indexed batchId, bytes32 merkleRoot, address indexed issuedBy, uint256 issuedAt)"
-    ]);
+      const iface = new ethers.Interface([
+        "function proposeBatch(string calldata _batchId, bytes32 _merkleRoot)"
+      ]);
 
-    const history = await Promise.all(data.result.map(async log => {
-      let batchId = log.transactionHash.substring(0, 10);
-      let root    = log.topics[1] ? log.topics[1].toString() : "";
-      let issuedBy = log.topics[2] ? "0x" + log.topics[2].slice(26) : "";
-      let issuedAt = parseInt(log.timeStamp, 16);
+      const history = await Promise.all(logsData.result.map(async log => {
+        let batchId  = log.transactionHash.substring(0, 10);
+        let issuedAt = parseInt(log.timeStamp, 16);
+        let issuedBy = log.topics[2] ? "0x" + log.topics[2].slice(26) : "";
+        let root     = log.topics[1] ? log.topics[1].toString() : "";
 
-      try {
-        const receipt = await provider.getTransactionReceipt(log.transactionHash);
-        for (const rlog of receipt.logs) {
-          try {
-            const parsed = iface.parseLog(rlog);
-            if (parsed && parsed.name === "BatchIssued") {
-              console.log("parsed args:", parsed.args, typeof parsed.args[0], JSON.stringify(parsed.args));
-              batchId  = parsed.args.batchId   || parsed.args[0]?.toString() || log.transactionHash.substring(0, 10);
-              root     = parsed.args.merkleRoot || parsed.args[1]?.toString() || root;
-              issuedBy = parsed.args.issuedBy  || parsed.args[2]?.toString() || issuedBy;
-              issuedAt = parsed.args.issuedAt  ? Number(parsed.args.issuedAt) : issuedAt;
-              break;
-            }
-          } catch {}
+        try {
+          const txUrl  = `https://api.etherscan.io/v2/api?chainid=11155111&module=proxy&action=eth_getTransactionByHash&txhash=${log.transactionHash}&apikey=${apiKey}`;
+          const txRes  = await fetch(txUrl);
+          const txData = await txRes.json();
+          const input  = txData.result?.input || "";
+
+          if (input.length > 10) {
+            try {
+              const decoded = iface.decodeFunctionData("proposeBatch", input);
+              batchId = decoded[0] !== undefined ? decoded[0].toString() : batchId;
+            } catch {}
+          }
+        } catch (err) {
+          console.log("tx fetch error:", err.message);
         }
-      } catch {}
 
-      return {
-        batchId:  batchId,
-        root:     root,
-        issuedBy: issuedBy,
-        issuedAt: issuedAt
-      };
-    }));
+        return {
+          batchId:  batchId,
+          root:     root,
+          issuedBy: issuedBy,
+          issuedAt: issuedAt
+        };
+      }));
 
-    setBatchHistory(history.reverse());
-    showMsg(`Found ${history.length} batch(es).`);
-  } catch (e) {
-    console.error(e);
-    showMsg(e.message, "error");
-  }
-  setLoadingHistory(false);
-};
+      setBatchHistory(history.reverse());
+      showMsg(`Found ${history.length} batch(es).`);
+    } catch (e) {
+      console.error(e);
+      showMsg(e.message, "error");
+    }
+    setLoadingHistory(false);
+  };
+
   return (
     <Box sx={{ minHeight: "100vh", background: "#0f1117", color: "#e8eaf0" }}>
       <Box sx={{ background: "#171b26", borderBottom: "1px solid #2a2f42", px: 4, py: 2,
