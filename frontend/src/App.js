@@ -480,7 +480,7 @@ const loadBatchHistory = async () => {
     const readContract = new ethers.Contract(CONTRACT_ADDRESS, abi, provider);
     const latest = await provider.getBlockNumber();
     const chunkSize = 2000;
-    const deployBlock = 11583168;
+    const deployBlock = 11628001;
     let allEvents = [];
 
     for (let start = deployBlock; start <= latest; start += chunkSize) {
