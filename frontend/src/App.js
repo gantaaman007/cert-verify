@@ -471,46 +471,30 @@ export default function App() {
 const loadBatchHistory = async () => {
   setLoadingHistory(true);
   try {
-    const provider = new ethers.JsonRpcProvider(
-      "https://eth-sepolia.g.alchemy.com/v2/alch_mslyZ-pynP9e20GEMgFDp"
-    );
-    const abi = [
-      "event BatchIssued(string indexed batchId, bytes32 merkleRoot, address indexed issuedBy, uint256 issuedAt)"
-    ];
-    const readContract = new ethers.Contract(CONTRACT_ADDRESS, abi, provider);
-    const latest = await provider.getBlockNumber();
-    const deployBlock = 11628001;
-    const chunkSize = 500;
-    let allEvents = [];
+    const apiKey = "H57R9V3NSAGCSUE7MKRPE3JB64HF21C8QS";
+    const url = `https://api-sepolia.etherscan.io/api?module=logs&action=getLogs&address=${CONTRACT_ADDRESS}&topic0=0x9d115c21e92347f43a5a77bc34f9d83e2638b1aaab21840c87251322d239fe4b&fromBlock=11628001&toBlock=latest&apikey=${apiKey}`;
+    const response = await fetch(url);
+    const data = await response.json();
 
-    for (let start = deployBlock; start <= latest; start += chunkSize) {
-      const end = Math.min(start + chunkSize - 1, latest);
-      try {
-        const events = await readContract.queryFilter(
-          readContract.filters.BatchIssued(), start, end
-        );
-        if (events.length > 0) {
-          allEvents = [...allEvents, ...events];
-        }
-      } catch (err) {
-        console.log(`chunk ${start}-${end} failed:`, err.message);
-      }
-    }
+    console.log("Etherscan response:", data);
 
-    console.log("Total events found:", allEvents.length);
-
-    if (allEvents.length === 0) {
-      showMsg("No batches found on this contract.", "warning");
+    if (data.status === "0") {
+      showMsg("No batches found.", "warning");
       setLoadingHistory(false);
       return;
     }
 
-    const history = allEvents.map(e => ({
-      batchId:  e.args[0],
-      root:     e.args[1],
-      issuedBy: e.args[2],
-      issuedAt: e.args[3]
-    }));
+    const history = data.result.map(log => {
+      const batchId = ethers.toUtf8String(
+        ethers.dataSlice(log.data, 96, 96 + parseInt(log.data.slice(130, 194), 16))
+      );
+      return {
+        batchId:  batchId || log.transactionHash.substring(0, 10),
+        root:     log.topics[1] || "",
+        issuedBy: "0x" + log.topics[2]?.slice(26),
+        issuedAt: parseInt(log.timeStamp, 16)
+      };
+    });
 
     setBatchHistory(history.reverse());
     showMsg(`Found ${history.length} batch(es).`);
