@@ -186,10 +186,10 @@ export default function App() {
   ]);
   const [issuedBatch, setIssuedBatch] = useState(null);
 
-  const [verifyBatchId, setVerifyBatchId]   = useState(params.get("batchId")     || "");
-  const [verifyCertName, setVerifyCertName] = useState(params.get("name")        || "");
-  const [verifyDegree, setVerifyDegree]     = useState(params.get("degree")      || "");
-  const [verifyUni, setVerifyUni]           = useState(params.get("university")  || "");
+  const [verifyBatchId, setVerifyBatchId]   = useState(params.get("batchId")    || "");
+  const [verifyCertName, setVerifyCertName] = useState(params.get("name")       || "");
+  const [verifyDegree, setVerifyDegree]     = useState(params.get("degree")     || "");
+  const [verifyUni, setVerifyUni]           = useState(params.get("university") || "");
   const [verifyYear, setVerifyYear]         = useState(parseInt(params.get("year")) || 2024);
   const [verifyResult, setVerifyResult]     = useState(null);
   const [pasteProof, setPasteProof]         = useState("");
@@ -291,7 +291,7 @@ export default function App() {
         verifyCertificate(bId, name, degree, uni, year, proof, leaf);
       }, 800);
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const connectWallet = async () => {
     try {
@@ -392,8 +392,7 @@ export default function App() {
     if (!contract) { showMsg("Connect wallet first.", "warning"); return; }
     setLoading(true);
     try {
-      const tx = await contract.approveBatch(parseInt(proposalId));
-      await tx.wait();
+      await (await contract.approveBatch(parseInt(proposalId))).wait();
       showMsg("Batch approved successfully.");
       setProposalId("");
     } catch (e) {
@@ -469,40 +468,34 @@ export default function App() {
     setLoading(false);
   };
 
-const loadBatchHistory = async () => {
-  setLoadingHistory(true);
-  try {
-    const provider = new ethers.JsonRpcProvider(
-      "https://eth-sepolia.g.alchemy.com/v2/alch_mslyZ-pynP9e20GEMgFDp"
-    );
-    const abi = [
-      "event BatchIssued(string indexed batchId, bytes32 merkleRoot, address indexed issuedBy, uint256 issuedAt)",
-      "event BatchExecuted(uint256 indexed proposalId, string batchId)"
-    ];
-    const readContract = new ethers.Contract(CONTRACT_ADDRESS, abi, provider);
-    const filter = readContract.filters.BatchIssued();
-    const events = await readContract.queryFilter(filter, 0, "latest");
-    console.log("events found:", events.length, events);
-    const history = await Promise.all(events.map(async (e) => {
-      const tx = await provider.getTransactionReceipt(e.transactionHash);
-      return {
-        batchId:  e.args[0] || "unknown",
+  const loadBatchHistory = async () => {
+    setLoadingHistory(true);
+    try {
+      const provider = new ethers.JsonRpcProvider(
+        "https://eth-sepolia.g.alchemy.com/v2/alch_mslyZ-pynP9e20GEMgFDp"
+      );
+      const abi = [
+        "event BatchIssued(string indexed batchId, bytes32 merkleRoot, address indexed issuedBy, uint256 issuedAt)"
+      ];
+      const readContract = new ethers.Contract(CONTRACT_ADDRESS, abi, provider);
+      const events = await readContract.queryFilter(
+        readContract.filters.BatchIssued(), 0, "latest"
+      );
+      const history = events.map(e => ({
+        batchId:  e.args[0],
         root:     e.args[1],
         issuedBy: e.args[2],
-        issuedAt: e.args[3],
-        txHash:   e.transactionHash
-      };
-    }));
-    setBatchHistory(history.reverse());
-    if (history.length === 0) {
-      showMsg("No batches found on this contract.", "warning");
+        issuedAt: e.args[3]
+      }));
+      setBatchHistory(history.reverse());
+      if (history.length === 0) {
+        showMsg("No batches found on this contract.", "warning");
+      }
+    } catch (e) {
+      showMsg(e.message, "error");
     }
-  } catch (e) {
-    console.error(e);
-    showMsg(e.message, "error");
-  }
-  setLoadingHistory(false);
-};
+    setLoadingHistory(false);
+  };
 
   return (
     <Box sx={{ minHeight: "100vh", background: "#0f1117", color: "#e8eaf0" }}>
@@ -572,7 +565,7 @@ const loadBatchHistory = async () => {
 
             <Card sx={{ background: "#1e2333", border: "1px dashed #2a2f42", p: 2 }}>
               <Typography variant="caption" sx={{ color: "#7a8099", display: "block", mb: 1 }}>
-                Optional — paste proof JSON or import file for advanced Merkle verification:
+                Optional — paste proof JSON or import file for Merkle verification:
               </Typography>
               <TextField
                 placeholder='Paste proof JSON {"batchId": "...", "proofData": {...}}'
@@ -598,7 +591,8 @@ const loadBatchHistory = async () => {
                     {verifyResult.valid ? "✓ VALID" : "✗ INVALID"}
                   </Typography>
                   {verifyResult.revoked && (
-                    <Chip label="REVOKED" size="small" sx={{ background: "#f87171", color: "#fff" }} />
+                    <Chip label="REVOKED" size="small"
+                      sx={{ background: "#f87171", color: "#fff" }} />
                   )}
                 </Stack>
                 {verifyResult.reason && (
@@ -789,7 +783,8 @@ const loadBatchHistory = async () => {
                   value={requiredApprovals}
                   onChange={e => setRequiredApprovals(parseInt(e.target.value))}
                   size="small" sx={{ ...inputSx, width: 180 }} />
-                <Button variant="contained" onClick={updateRequiredApprovals} disabled={loading || !wallet}
+                <Button variant="contained" onClick={updateRequiredApprovals}
+                  disabled={loading || !wallet}
                   sx={{ background: "#a78bfa", "&:hover": { background: "#7c3aed" } }}>
                   {loading ? <CircularProgress size={20} color="inherit" /> : "Update"}
                 </Button>
