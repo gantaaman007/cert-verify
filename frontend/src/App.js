@@ -468,34 +468,51 @@ export default function App() {
     setLoading(false);
   };
 
-  const loadBatchHistory = async () => {
-    setLoadingHistory(true);
-    try {
-      const provider = new ethers.JsonRpcProvider(
-        "https://eth-sepolia.g.alchemy.com/v2/alch_mslyZ-pynP9e20GEMgFDp"
-      );
-      const abi = [
-        "event BatchIssued(string indexed batchId, bytes32 merkleRoot, address indexed issuedBy, uint256 issuedAt)"
-      ];
-      const readContract = new ethers.Contract(CONTRACT_ADDRESS, abi, provider);
-      const events = await readContract.queryFilter(
-        readContract.filters.BatchIssued(), 0, "latest"
-      );
-      const history = events.map(e => ({
-        batchId:  e.args[0],
-        root:     e.args[1],
-        issuedBy: e.args[2],
-        issuedAt: e.args[3]
-      }));
-      setBatchHistory(history.reverse());
-      if (history.length === 0) {
-        showMsg("No batches found on this contract.", "warning");
+const loadBatchHistory = async () => {
+  setLoadingHistory(true);
+  try {
+    const provider = new ethers.JsonRpcProvider(
+      "https://eth-sepolia.g.alchemy.com/v2/alch_mslyZ-pynP9e20GEMgFDp"
+    );
+    const abi = [
+      "event BatchIssued(string indexed batchId, bytes32 merkleRoot, address indexed issuedBy, uint256 issuedAt)"
+    ];
+    const readContract = new ethers.Contract(CONTRACT_ADDRESS, abi, provider);
+    const latest = await provider.getBlockNumber();
+    const chunkSize = 2000;
+    const deployBlock = latest - 50000 > 0 ? latest - 50000 : 0;
+    let allEvents = [];
+
+    for (let start = deployBlock; start <= latest; start += chunkSize) {
+      const end = Math.min(start + chunkSize - 1, latest);
+      try {
+        const events = await readContract.queryFilter(
+          readContract.filters.BatchIssued(), start, end
+        );
+        allEvents = [...allEvents, ...events];
+      } catch {
+        // skip failed chunk
       }
-    } catch (e) {
-      showMsg(e.message, "error");
     }
-    setLoadingHistory(false);
-  };
+
+    const history = allEvents.map(e => ({
+      batchId:  e.args[0],
+      root:     e.args[1],
+      issuedBy: e.args[2],
+      issuedAt: e.args[3]
+    }));
+
+    setBatchHistory(history.reverse());
+    if (history.length === 0) {
+      showMsg("No batches found.", "warning");
+    } else {
+      showMsg(`Found ${history.length} batch(es).`);
+    }
+  } catch (e) {
+    showMsg(e.message, "error");
+  }
+  setLoadingHistory(false);
+};
 
   return (
     <Box sx={{ minHeight: "100vh", background: "#0f1117", color: "#e8eaf0" }}>
