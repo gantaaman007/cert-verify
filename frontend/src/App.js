@@ -478,7 +478,6 @@ const loadBatchHistory = async () => {
     const url = `https://api.etherscan.io/v2/api?chainid=11155111&module=logs&action=getLogs&address=${CONTRACT_ADDRESS}&topic0=0x9d115c21e92347f43a5a77bc34f9d83e2638b1aaab21840c87251322d239fe4b&fromBlock=11628001&toBlock=latest&apikey=${apiKey}`;
     const response = await fetch(url);
     const data = await response.json();
-
     console.log("Etherscan response:", data);
 
     if (data.status === "0") {
@@ -487,30 +486,40 @@ const loadBatchHistory = async () => {
       return;
     }
 
- const history = await Promise.all(data.result.map(async log => {
-  let batchId = log.transactionHash.substring(0, 10);
-  try {
-    const receipt = await provider.getTransactionReceipt(log.transactionHash);
     const iface = new ethers.Interface([
       "event BatchIssued(string indexed batchId, bytes32 merkleRoot, address indexed issuedBy, uint256 issuedAt)"
     ]);
-    for (const rlog of receipt.logs) {
+
+    const history = await Promise.all(data.result.map(async log => {
+      let batchId = log.transactionHash.substring(0, 10);
+      let root    = log.topics[1] ? log.topics[1].toString() : "";
+      let issuedBy = log.topics[2] ? "0x" + log.topics[2].slice(26) : "";
+      let issuedAt = parseInt(log.timeStamp, 16);
+
       try {
-        const parsed = iface.parseLog(rlog);
-        if (parsed && parsed.name === "BatchIssued") {
-          batchId = parsed.args[0];
-          break;
+        const receipt = await provider.getTransactionReceipt(log.transactionHash);
+        for (const rlog of receipt.logs) {
+          try {
+            const parsed = iface.parseLog(rlog);
+            if (parsed && parsed.name === "BatchIssued") {
+              batchId  = String(parsed.args[0]);
+              root     = String(parsed.args[1]);
+              issuedBy = String(parsed.args[2]);
+              issuedAt = Number(parsed.args[3]);
+              break;
+            }
+          } catch {}
         }
       } catch {}
-    }
-  } catch {}
-  return {
-    batchId,
-    root:     log.topics[1] ? log.topics[1].toString() : "",
-    issuedBy: log.topics[2] ? "0x" + log.topics[2].slice(26) : "",
-    issuedAt: parseInt(log.timeStamp, 16)
-  };
-}));
+
+      return {
+        batchId:  batchId,
+        root:     root,
+        issuedBy: issuedBy,
+        issuedAt: issuedAt
+      };
+    }));
+
     setBatchHistory(history.reverse());
     showMsg(`Found ${history.length} batch(es).`);
   } catch (e) {
@@ -519,7 +528,6 @@ const loadBatchHistory = async () => {
   }
   setLoadingHistory(false);
 };
-
   return (
     <Box sx={{ minHeight: "100vh", background: "#0f1117", color: "#e8eaf0" }}>
       <Box sx={{ background: "#171b26", borderBottom: "1px solid #2a2f42", px: 4, py: 2,
