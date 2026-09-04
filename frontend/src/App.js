@@ -484,18 +484,30 @@ const loadBatchHistory = async () => {
       return;
     }
 
-    const history = data.result.map(log => {
-      const batchId = ethers.toUtf8String(
-        ethers.dataSlice(log.data, 96, 96 + parseInt(log.data.slice(130, 194), 16))
-      );
-      return {
-        batchId:  batchId || log.transactionHash.substring(0, 10),
-        root:     log.topics[1] || "",
-        issuedBy: "0x" + log.topics[2]?.slice(26),
-        issuedAt: parseInt(log.timeStamp, 16)
-      };
-    });
-
+ const history = await Promise.all(data.result.map(async log => {
+  let batchId = log.transactionHash.substring(0, 10);
+  try {
+    const receipt = await provider.getTransactionReceipt(log.transactionHash);
+    const iface = new ethers.Interface([
+      "event BatchIssued(string indexed batchId, bytes32 merkleRoot, address indexed issuedBy, uint256 issuedAt)"
+    ]);
+    for (const rlog of receipt.logs) {
+      try {
+        const parsed = iface.parseLog(rlog);
+        if (parsed && parsed.name === "BatchIssued") {
+          batchId = parsed.args[0];
+          break;
+        }
+      } catch {}
+    }
+  } catch {}
+  return {
+    batchId,
+    root:     log.topics[1] || "",
+    issuedBy: "0x" + log.topics[2]?.slice(26),
+    issuedAt: parseInt(log.timeStamp, 16)
+  };
+}));
     setBatchHistory(history.reverse());
     showMsg(`Found ${history.length} batch(es).`);
   } catch (e) {
