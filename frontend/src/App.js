@@ -199,8 +199,6 @@ export default function App() {
   const [issuerAddress, setIssuerAddress]   = useState("");
   const [proposalId, setProposalId]         = useState("");
   const [requiredApprovals, setRequiredApprovals] = useState(1);
-  const [batchHistory, setBatchHistory]     = useState([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
 
   const showMsg = (text, severity = "success") => {
     setMessage({ text, severity });
@@ -466,63 +464,6 @@ export default function App() {
       showMsg(e.reason || e.message, "error");
     }
     setLoading(false);
-  };
-
-  const loadBatchHistory = async () => {
-    setLoadingHistory(true);
-    try {
-      const apiKey = "H57R9V3NSAGCSUE7MKRPE3JB64HF21C8QS";
-      const logsUrl = `https://api.etherscan.io/v2/api?chainid=11155111&module=logs&action=getLogs&address=${CONTRACT_ADDRESS}&topic0=0x9d115c21e92347f43a5a77bc34f9d83e2638b1aaab21840c87251322d239fe4b&fromBlock=11628001&toBlock=latest&apikey=${apiKey}`;
-      const logsRes  = await fetch(logsUrl);
-      const logsData = await logsRes.json();
-
-      if (logsData.status === "0") {
-        showMsg("No batches found.", "warning");
-        setLoadingHistory(false);
-        return;
-      }
-
-      const iface = new ethers.Interface([
-        "function proposeBatch(string calldata _batchId, bytes32 _merkleRoot)"
-      ]);
-
-      const history = await Promise.all(logsData.result.map(async log => {
-        let batchId  = log.transactionHash.substring(0, 10);
-        let issuedAt = parseInt(log.timeStamp, 16);
-        let issuedBy = log.topics[2] ? "0x" + log.topics[2].slice(26) : "";
-        let root     = log.topics[1] ? log.topics[1].toString() : "";
-
-        try {
-          const txUrl  = `https://api.etherscan.io/v2/api?chainid=11155111&module=proxy&action=eth_getTransactionByHash&txhash=${log.transactionHash}&apikey=${apiKey}`;
-          const txRes  = await fetch(txUrl);
-          const txData = await txRes.json();
-          const input  = txData.result?.input || "";
-
-          if (input.length > 10) {
-            try {
-              const decoded = iface.decodeFunctionData("proposeBatch", input);
-              batchId = decoded[0] !== undefined ? decoded[0].toString() : batchId;
-            } catch {}
-          }
-        } catch (err) {
-          console.log("tx fetch error:", err.message);
-        }
-
-        return {
-          batchId:  batchId,
-          root:     root,
-          issuedBy: issuedBy,
-          issuedAt: issuedAt
-        };
-      }));
-
-      setBatchHistory(history.reverse());
-      showMsg(`Found ${history.length} batch(es).`);
-    } catch (e) {
-      console.error(e);
-      showMsg(e.message, "error");
-    }
-    setLoadingHistory(false);
   };
 
   return (
@@ -820,54 +761,6 @@ export default function App() {
               <Typography variant="caption" sx={{ color: "#7a8099", mt: 1, display: "block" }}>
                 Set to 1 for single approval. Set to 2 for 2-of-N multisig.
               </Typography>
-            </Card>
-
-            <Card sx={{ background: "#1e2333", border: "1px solid #2a2f42", p: 2 }}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-                <Typography variant="subtitle2" sx={{ color: "#a78bfa" }}>
-                  All Issued Batches
-                </Typography>
-                <Button size="small" variant="outlined" onClick={loadBatchHistory}
-                  disabled={loadingHistory}
-                  sx={{ borderColor: "#a78bfa", color: "#a78bfa" }}>
-                  {loadingHistory
-                    ? <CircularProgress size={16} color="inherit" />
-                    : "Load History"}
-                </Button>
-              </Stack>
-              {batchHistory.length === 0 ? (
-                <Typography variant="caption" sx={{ color: "#7a8099" }}>
-                  Click Load History to fetch all batches from the blockchain.
-                </Typography>
-              ) : (
-                <Stack spacing={1}>
-                  {batchHistory.map((b, i) => (
-                    <Card key={i} sx={{ background: "#171b26", border: "1px solid #2a2f42", p: 1.5 }}>
-                      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                        <Box>
-                          <Typography variant="body2" sx={{ color: "#a78bfa", fontWeight: 600 }}>
-                            {b.batchId}
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: "#7a8099", display: "block" }}>
-                            Issued: {new Date(Number(b.issuedAt) * 1000).toLocaleString()}
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: "#7a8099", display: "block" }}>
-                            By: {b.issuedBy.substring(0, 10)}...
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: "#7a8099", display: "block" }}>
-                            Root: {b.root.substring(0, 20)}...
-                          </Typography>
-                        </Box>
-                        <Button size="small" variant="outlined"
-                          onClick={() => { setVerifyBatchId(b.batchId); setTab(0); }}
-                          sx={{ borderColor: "#2a2f42", color: "#7a8099", fontSize: 10 }}>
-                          Go to Verify
-                        </Button>
-                      </Stack>
-                    </Card>
-                  ))}
-                </Stack>
-              )}
             </Card>
 
           </Stack>
