@@ -130,28 +130,30 @@ async function generateCertificatePDF(student, batchId, certHash, merkleRoot, is
   doc.text("CERTIFICATE HASH", 22, 129);
   doc.setTextColor(200, 200, 220);
   doc.setFontSize(6.5);
-  doc.text(certHash.substring(0, 42) + "...", 22, 134);
+  doc.text(certHash.substring(0, 42), 22, 134);
+  doc.text(certHash.substring(42), 22, 138);
 
   doc.setTextColor(122, 128, 153);
   doc.setFontSize(7);
-  doc.text("MERKLE ROOT", 22, 142);
+  doc.text("MERKLE ROOT", 22, 144);
   doc.setTextColor(200, 200, 220);
   doc.setFontSize(6.5);
-  doc.text(merkleRoot.substring(0, 42) + "...", 22, 147);
+  doc.text(merkleRoot.substring(0, 42), 22, 149);
+  doc.text(merkleRoot.substring(42), 22, 153);
 
   doc.setTextColor(122, 128, 153);
   doc.setFontSize(7);
-  doc.text("ISSUED BY", 22, 155);
+  doc.text("ISSUED BY", 22, 159);
   doc.setTextColor(200, 200, 220);
   doc.setFontSize(6.5);
-  doc.text(issuedBy, 22, 160);
+  doc.text(issuedBy, 22, 164);
 
   doc.setTextColor(122, 128, 153);
   doc.setFontSize(7);
-  doc.text("ISSUED AT", 22, 168);
+  doc.text("ISSUED AT", 22, 170);
   doc.setTextColor(200, 200, 220);
   doc.setFontSize(7.5);
-  doc.text(new Date(Number(issuedAt) * 1000).toLocaleString(), 22, 173);
+  doc.text(new Date(Number(issuedAt) * 1000).toLocaleString(), 22, 175);
 
   doc.setTextColor(122, 128, 153);
   doc.setFontSize(7);
@@ -598,7 +600,6 @@ export default function App() {
         <TabPanel value={tab} index={0}>
           <Typography variant="h6" sx={{ mb: 2, color: "#e8eaf0" }}>Verify a Certificate</Typography>
 
-          {/* Mode selector */}
           <Stack direction="row" spacing={1} mb={3}>
             <Button
               variant={verifyMode === "hash" ? "contained" : "outlined"}
@@ -629,7 +630,6 @@ export default function App() {
             </Box>
           )}
 
-          {/* HASH MODE */}
           {verifyMode === "hash" && (
             <Stack spacing={2}>
               <Typography variant="body2" sx={{ color: "#7a8099" }}>
@@ -640,7 +640,7 @@ export default function App() {
                 value={certHashInput}
                 onChange={e => setCertHashInput(e.target.value)}
                 fullWidth
-                placeholder="0x226944ab11abe83d..."
+                placeholder="0x96314bedb9af57ceb6b84b336a19c9927b6dbc771f2736ff43e225a2c1df9021"
                 sx={inputSx}
               />
               <Button variant="contained" onClick={verifyByHash} disabled={loading}
@@ -650,7 +650,6 @@ export default function App() {
             </Stack>
           )}
 
-          {/* MANUAL MODE */}
           {verifyMode === "manual" && (
             <Stack spacing={2}>
               <Typography variant="body2" sx={{ color: "#7a8099" }}>
