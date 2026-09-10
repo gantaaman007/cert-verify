@@ -337,7 +337,14 @@ export default function App() {
             const proof = getMerkleProof(allLeaves, dbProof.proof_index);
             merkleValid = verifyMerkleProof(certHash, proof, result.merkleRoot);
           } else {
-            merkleValid = true;
+                setVerifyResult({
+        valid: false, revoked: false,
+            reason: "Certificate details not found in database. Use hash-based verification or scan the QR code.",
+        merkleRoot: result.merkleRoot, issuedAt: result.issuedAt,
+        issuedBy: result.issuedBy, certHash
+          });
+          setLoading(false);
+          return;
           }
         }
       }
