@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { ethers } from "ethers";
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "./contract";
 import { hashCertificate, buildMerkleTree, getMerkleProof, verifyMerkleProof } from "./utils/merkle";
+import { saveBatchToDB, getProofFromDB, getAllProofsForBatch, getAllBatches } from "./db";
 import { jsPDF } from "jspdf";
 import QRCode from "qrcode";
 import {
@@ -199,6 +200,8 @@ export default function App() {
   const [issuerAddress, setIssuerAddress]   = useState("");
   const [proposalId, setProposalId]         = useState("");
   const [requiredApprovals, setRequiredApprovals] = useState(1);
+  const [batchHistory, setBatchHistory]     = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   const showMsg = (text, severity = "success") => {
     setMessage({ text, severity });
@@ -259,7 +262,15 @@ export default function App() {
           const proof = getMerkleProof(allLeaves, stored.index);
           merkleValid = verifyMerkleProof(certHash, proof, result.merkleRoot);
         } else {
-          merkleValid = true;
+          const dbProof = await getProofFromDB(useBatchId, cert);
+          if (dbProof) {
+            const allProofs = await getAllProofsForBatch(useBatchId);
+            const allLeaves = allProofs.map(p => p.leaf);
+            const proof = getMerkleProof(allLeaves, dbProof.proof_index);
+            merkleValid = verifyMerkleProof(certHash, proof, result.merkleRoot);
+          } else {
+            merkleValid = true;
+          }
         }
       }
 
@@ -359,6 +370,7 @@ export default function App() {
       const tx = await contract.proposeBatch(batchId, root);
       const receipt = await tx.wait();
       saveProofs(batchId, students, leaves, setProofJson);
+      await saveBatchToDB(batchId, root, wallet, students, leaves);
 
       const executedEvent = receipt.logs.find(log => {
         try { return contract.interface.parseLog(log).name === "BatchExecuted"; }
@@ -464,6 +476,22 @@ export default function App() {
       showMsg(e.reason || e.message, "error");
     }
     setLoading(false);
+  };
+
+  const loadBatchHistory = async () => {
+    setLoadingHistory(true);
+    try {
+      const batches = await getAllBatches();
+      setBatchHistory(batches);
+      if (batches.length === 0) {
+        showMsg("No batches found.", "warning");
+      } else {
+        showMsg(`Found ${batches.length} batch(es).`);
+      }
+    } catch (e) {
+      showMsg(e.message, "error");
+    }
+    setLoadingHistory(false);
   };
 
   return (
@@ -599,7 +627,7 @@ export default function App() {
         <TabPanel value={tab} index={1}>
           <Typography variant="h6" sx={{ mb: 2, color: "#e8eaf0" }}>Issue Certificate Batch</Typography>
           <Typography variant="body2" sx={{ color: "#7a8099", mb: 3 }}>
-            Wallet required. Merkle tree built automatically. QR code on PDF contains verification proof.
+            Wallet required. Merkle tree built automatically. Proofs saved to Supabase.
           </Typography>
           <Stack spacing={2}>
             <TextField label="Batch ID (e.g. MIT-CS-2024-003)" value={batchId}
@@ -761,6 +789,54 @@ export default function App() {
               <Typography variant="caption" sx={{ color: "#7a8099", mt: 1, display: "block" }}>
                 Set to 1 for single approval. Set to 2 for 2-of-N multisig.
               </Typography>
+            </Card>
+
+            <Card sx={{ background: "#1e2333", border: "1px solid #2a2f42", p: 2 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+                <Typography variant="subtitle2" sx={{ color: "#a78bfa" }}>
+                  All Issued Batches
+                </Typography>
+                <Button size="small" variant="outlined" onClick={loadBatchHistory}
+                  disabled={loadingHistory}
+                  sx={{ borderColor: "#a78bfa", color: "#a78bfa" }}>
+                  {loadingHistory
+                    ? <CircularProgress size={16} color="inherit" />
+                    : "Load History"}
+                </Button>
+              </Stack>
+              {batchHistory.length === 0 ? (
+                <Typography variant="caption" sx={{ color: "#7a8099" }}>
+                  Click Load History to fetch all batches.
+                </Typography>
+              ) : (
+                <Stack spacing={1}>
+                  {batchHistory.map((b, i) => (
+                    <Card key={i} sx={{ background: "#171b26", border: "1px solid #2a2f42", p: 1.5 }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                        <Box>
+                          <Typography variant="body2" sx={{ color: "#a78bfa", fontWeight: 600 }}>
+                            {b.batch_id}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: "#7a8099", display: "block" }}>
+                            Issued: {new Date(b.issued_at).toLocaleString()}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: "#7a8099", display: "block" }}>
+                            By: {b.issued_by?.substring(0, 10)}...
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: "#7a8099", display: "block" }}>
+                            Root: {b.merkle_root?.substring(0, 20)}...
+                          </Typography>
+                        </Box>
+                        <Button size="small" variant="outlined"
+                          onClick={() => { setVerifyBatchId(b.batch_id); setTab(0); }}
+                          sx={{ borderColor: "#2a2f42", color: "#7a8099", fontSize: 10 }}>
+                          Go to Verify
+                        </Button>
+                      </Stack>
+                    </Card>
+                  ))}
+                </Stack>
+              )}
             </Card>
 
           </Stack>
