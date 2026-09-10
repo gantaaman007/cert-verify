@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { ethers } from "ethers";
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "./contract";
 import { hashCertificate, buildMerkleTree, getMerkleProof, verifyMerkleProof } from "./utils/merkle";
-import { saveBatchToDB, getProofFromDB, getAllProofsForBatch, getAllBatches } from "./db";
+import { saveBatchToDB, getProofFromDB, getAllProofsForBatch, getAllBatches, getProofByHash } from "./db";
 import { jsPDF } from "jspdf";
 import QRCode from "qrcode";
 import {
@@ -187,6 +187,8 @@ export default function App() {
   ]);
   const [issuedBatch, setIssuedBatch] = useState(null);
 
+  const [verifyMode, setVerifyMode]         = useState("hash");
+  const [certHashInput, setCertHashInput]   = useState("");
   const [verifyBatchId, setVerifyBatchId]   = useState(params.get("batchId")    || "");
   const [verifyCertName, setVerifyCertName] = useState(params.get("name")       || "");
   const [verifyDegree, setVerifyDegree]     = useState(params.get("degree")     || "");
@@ -206,6 +208,70 @@ export default function App() {
   const showMsg = (text, severity = "success") => {
     setMessage({ text, severity });
     setTimeout(() => setMessage(null), 6000);
+  };
+
+  const verifyByHash = async () => {
+    if (!certHashInput) { showMsg("Enter a certificate hash.", "warning"); return; }
+    setLoading(true);
+    setVerifyResult(null);
+    try {
+      const dbProof = await getProofByHash(certHashInput.trim());
+      if (!dbProof) {
+        setVerifyResult({
+          valid: false, revoked: false,
+          reason: "Certificate hash not found in database.",
+          merkleRoot: "", issuedAt: null, issuedBy: "", certHash: certHashInput
+        });
+        setLoading(false);
+        return;
+      }
+
+      const provider = new ethers.JsonRpcProvider(
+        "https://eth-sepolia.g.alchemy.com/v2/alch_mslyZ-pynP9e20GEMgFDp"
+      );
+      const readContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+      const result = await readContract.verifyCertificate(dbProof.batch_id, certHashInput.trim());
+
+      if (!result.valid) {
+        setVerifyResult({
+          valid: false, revoked: result.revoked,
+          reason: result.reason || "Certificate not valid",
+          merkleRoot: result.merkleRoot, issuedAt: result.issuedAt,
+          issuedBy: result.issuedBy, certHash: certHashInput,
+          studentName: dbProof.student_name,
+          degree: dbProof.degree,
+          university: dbProof.university,
+          year: dbProof.year
+        });
+        setLoading(false);
+        return;
+      }
+
+      const allProofs = await getAllProofsForBatch(dbProof.batch_id);
+      const allLeaves = allProofs.map(p => p.leaf);
+      const proof = getMerkleProof(allLeaves, dbProof.proof_index);
+      const merkleValid = verifyMerkleProof(certHashInput.trim(), proof, result.merkleRoot);
+
+      setVerifyResult({
+        valid: merkleValid, revoked: false,
+        reason: merkleValid ? "" : "Merkle proof failed",
+        merkleRoot: result.merkleRoot, issuedAt: result.issuedAt,
+        issuedBy: result.issuedBy, certHash: certHashInput,
+        studentName: dbProof.student_name,
+        degree: dbProof.degree,
+        university: dbProof.university,
+        year: dbProof.year,
+        cert: {
+          name: dbProof.student_name,
+          degree: dbProof.degree,
+          university: dbProof.university,
+          year: dbProof.year
+        }
+      });
+    } catch (e) {
+      showMsg(e.message, "error");
+    }
+    setLoading(false);
   };
 
   const verifyCertificate = async (
@@ -296,6 +362,7 @@ export default function App() {
     const proof  = p.get("proof");
     const leaf   = p.get("leaf");
     if (bId && name && proof) {
+      setVerifyMode("manual");
       setTimeout(() => {
         verifyCertificate(bId, name, degree, uni, year, proof, leaf);
       }, 800);
@@ -431,7 +498,7 @@ export default function App() {
   const downloadVerifiedPDF = async () => {
     if (!verifyResult?.valid) return;
     await generateCertificatePDF(
-      verifyResult.cert, verifyBatchId,
+      verifyResult.cert, verifyBatchId || verifyResult.cert?.batchId,
       verifyResult.certHash, verifyResult.merkleRoot,
       verifyResult.issuedAt, verifyResult.issuedBy
     );
@@ -530,9 +597,28 @@ export default function App() {
         {/* VERIFY */}
         <TabPanel value={tab} index={0}>
           <Typography variant="h6" sx={{ mb: 2, color: "#e8eaf0" }}>Verify a Certificate</Typography>
-          <Typography variant="body2" sx={{ color: "#7a8099", mb: 3 }}>
-            Scan the QR code on a certificate for instant verification, or enter details manually.
-          </Typography>
+
+          {/* Mode selector */}
+          <Stack direction="row" spacing={1} mb={3}>
+            <Button
+              variant={verifyMode === "hash" ? "contained" : "outlined"}
+              size="small"
+              onClick={() => { setVerifyMode("hash"); setVerifyResult(null); }}
+              sx={verifyMode === "hash"
+                ? { background: "#a78bfa" }
+                : { borderColor: "#2a2f42", color: "#7a8099" }}>
+              By Hash
+            </Button>
+            <Button
+              variant={verifyMode === "manual" ? "contained" : "outlined"}
+              size="small"
+              onClick={() => { setVerifyMode("manual"); setVerifyResult(null); }}
+              sx={verifyMode === "manual"
+                ? { background: "#a78bfa" }
+                : { borderColor: "#2a2f42", color: "#7a8099" }}>
+              By Details
+            </Button>
+          </Stack>
 
           {loading && (
             <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
@@ -543,41 +629,68 @@ export default function App() {
             </Box>
           )}
 
-          <Stack spacing={2}>
-            <TextField label="Batch ID" value={verifyBatchId}
-              onChange={e => setVerifyBatchId(e.target.value)} fullWidth sx={inputSx} />
-            <TextField label="Student Name" value={verifyCertName}
-              onChange={e => setVerifyCertName(e.target.value)} fullWidth sx={inputSx} />
-            <TextField label="Degree" value={verifyDegree}
-              onChange={e => setVerifyDegree(e.target.value)} fullWidth sx={inputSx} />
-            <TextField label="University" value={verifyUni}
-              onChange={e => setVerifyUni(e.target.value)} fullWidth sx={inputSx} />
-            <TextField label="Year" type="number" value={verifyYear}
-              onChange={e => setVerifyYear(e.target.value)} fullWidth sx={inputSx} />
-            <Button variant="contained"
-              onClick={() => verifyCertificate()} disabled={loading}
-              sx={{ background: "#a78bfa", "&:hover": { background: "#7c3aed" } }}>
-              {loading ? <CircularProgress size={20} color="inherit" /> : "Verify Certificate"}
-            </Button>
-
-            <Card sx={{ background: "#1e2333", border: "1px dashed #2a2f42", p: 2 }}>
-              <Typography variant="caption" sx={{ color: "#7a8099", display: "block", mb: 1 }}>
-                Optional — paste proof JSON or import file for Merkle verification:
+          {/* HASH MODE */}
+          {verifyMode === "hash" && (
+            <Stack spacing={2}>
+              <Typography variant="body2" sx={{ color: "#7a8099" }}>
+                Paste the certificate hash from the PDF. No other details needed.
               </Typography>
               <TextField
-                placeholder='Paste proof JSON {"batchId": "...", "proofData": {...}}'
-                multiline rows={2} fullWidth size="small"
-                value={pasteProof}
-                onChange={e => handlePasteProof(e.target.value)}
+                label="Certificate Hash (0x...)"
+                value={certHashInput}
+                onChange={e => setCertHashInput(e.target.value)}
+                fullWidth
+                placeholder="0x226944ab11abe83d..."
                 sx={inputSx}
               />
-              <Button variant="outlined" component="label" size="small"
-                sx={{ mt: 1, borderColor: "#2a2f42", color: "#7a8099" }}>
-                Import Proof File (.json)
-                <input type="file" accept=".json" hidden onChange={importProofs} />
+              <Button variant="contained" onClick={verifyByHash} disabled={loading}
+                sx={{ background: "#a78bfa", "&:hover": { background: "#7c3aed" } }}>
+                {loading ? <CircularProgress size={20} color="inherit" /> : "Verify by Hash"}
               </Button>
-            </Card>
-          </Stack>
+            </Stack>
+          )}
+
+          {/* MANUAL MODE */}
+          {verifyMode === "manual" && (
+            <Stack spacing={2}>
+              <Typography variant="body2" sx={{ color: "#7a8099" }}>
+                Scan the QR code on a certificate for instant verification, or enter details manually.
+              </Typography>
+              <TextField label="Batch ID" value={verifyBatchId}
+                onChange={e => setVerifyBatchId(e.target.value)} fullWidth sx={inputSx} />
+              <TextField label="Student Name" value={verifyCertName}
+                onChange={e => setVerifyCertName(e.target.value)} fullWidth sx={inputSx} />
+              <TextField label="Degree" value={verifyDegree}
+                onChange={e => setVerifyDegree(e.target.value)} fullWidth sx={inputSx} />
+              <TextField label="University" value={verifyUni}
+                onChange={e => setVerifyUni(e.target.value)} fullWidth sx={inputSx} />
+              <TextField label="Year" type="number" value={verifyYear}
+                onChange={e => setVerifyYear(e.target.value)} fullWidth sx={inputSx} />
+              <Button variant="contained"
+                onClick={() => verifyCertificate()} disabled={loading}
+                sx={{ background: "#a78bfa", "&:hover": { background: "#7c3aed" } }}>
+                {loading ? <CircularProgress size={20} color="inherit" /> : "Verify Certificate"}
+              </Button>
+
+              <Card sx={{ background: "#1e2333", border: "1px dashed #2a2f42", p: 2 }}>
+                <Typography variant="caption" sx={{ color: "#7a8099", display: "block", mb: 1 }}>
+                  Optional — paste proof JSON or import file:
+                </Typography>
+                <TextField
+                  placeholder='Paste proof JSON {"batchId": "...", "proofData": {...}}'
+                  multiline rows={2} fullWidth size="small"
+                  value={pasteProof}
+                  onChange={e => handlePasteProof(e.target.value)}
+                  sx={inputSx}
+                />
+                <Button variant="outlined" component="label" size="small"
+                  sx={{ mt: 1, borderColor: "#2a2f42", color: "#7a8099" }}>
+                  Import Proof File (.json)
+                  <input type="file" accept=".json" hidden onChange={importProofs} />
+                </Button>
+              </Card>
+            </Stack>
+          )}
 
           {verifyResult && (
             <Card sx={{ mt: 3, background: "#171b26",
@@ -592,6 +705,21 @@ export default function App() {
                       sx={{ background: "#f87171", color: "#fff" }} />
                   )}
                 </Stack>
+
+                {verifyResult.studentName && (
+                  <>
+                    <Typography variant="body2" sx={{ color: "#e8eaf0", mb: 0.5 }}>
+                      <strong>Student:</strong> {verifyResult.studentName}
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: "#e8eaf0", mb: 0.5 }}>
+                      <strong>Degree:</strong> {verifyResult.degree}
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: "#e8eaf0", mb: 1 }}>
+                      <strong>University:</strong> {verifyResult.university} · {verifyResult.year}
+                    </Typography>
+                  </>
+                )}
+
                 {verifyResult.reason && (
                   <Typography variant="body2" sx={{ color: "#fbbf24", mb: 1 }}>
                     Reason: {verifyResult.reason}
@@ -612,7 +740,7 @@ export default function App() {
                     ? new Date(Number(verifyResult.issuedAt) * 1000).toLocaleString()
                     : "—"}
                 </Typography>
-                {verifyResult.valid && (
+                {verifyResult.valid && verifyResult.cert && (
                   <Button variant="outlined" onClick={downloadVerifiedPDF}
                     sx={{ mt: 2, borderColor: "#34d399", color: "#34d399" }}>
                     Download Certificate PDF
@@ -828,7 +956,7 @@ export default function App() {
                           </Typography>
                         </Box>
                         <Button size="small" variant="outlined"
-                          onClick={() => { setVerifyBatchId(b.batch_id); setTab(0); }}
+                          onClick={() => { setVerifyBatchId(b.batch_id); setTab(0); setVerifyMode("manual"); }}
                           sx={{ borderColor: "#2a2f42", color: "#7a8099", fontSize: 10 }}>
                           Go to Verify
                         </Button>

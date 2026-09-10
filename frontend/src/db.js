@@ -72,3 +72,13 @@ export async function getAllBatches() {
   if (error) return [];
   return data;
 }
+export async function getProofByHash(certHash) {
+  const { data, error } = await supabase
+    .from("proofs")
+    .select("*")
+    .eq("cert_hash", certHash)
+    .single();
+
+  if (error || !data) return null;
+  return data;
+}
