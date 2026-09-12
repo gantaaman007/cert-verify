@@ -217,7 +217,8 @@ export default function App() {
     setLoading(true);
     setVerifyResult(null);
     try {
-      const dbProof = await getProofByHash(certHashInput.trim());
+      const cleanHash = certHashInput.replace(/\s+/g, "").toLowerCase();
+      const dbProof = await getProofByHash(cleanHash);
       if (!dbProof) {
         setVerifyResult({
           valid: false, revoked: false,
@@ -656,7 +657,7 @@ export default function App() {
               <TextField
                 label="Certificate Hash (0x...)"
                 value={certHashInput}
-                onChange={e => setCertHashInput(e.target.value)}
+                onChange={e => setCertHashInput(e.target.value.replace(/\s+/g, ""))}
                 fullWidth
                 placeholder="0x96314bedb9af57ceb6b84b336a19c9927b6dbc771f2736ff43e225a2c1df9021"
                 sx={inputSx}

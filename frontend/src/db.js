@@ -22,7 +22,7 @@ export async function saveBatchToDB(batchId, merkleRoot, issuedBy, students, lea
     year:         student.year,
     leaf:         leaves[i],
     proof_index:  i,
-    cert_hash:    leaves[i]
+    cert_hash: leaves[i].toLowerCase()
   }));
 
   const { error: proofError } = await supabase
@@ -77,7 +77,7 @@ export async function getProofByHash(certHash) {
   const { data, error } = await supabase
     .from("proofs")
     .select("*")
-    .eq("cert_hash", certHash)
+    .eq("cert_hash", certHash.replace(/\s+/g, "").toLowerCase())
     .single();
 
   if (error || !data) return null;
