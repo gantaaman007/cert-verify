@@ -288,17 +288,28 @@ export default function App() {
     setLoading(true);
     setVerifyResult(null);
     try {
+      const certName    = (overrideName    || verifyCertName).trim();
+      const certDegree  = (overrideDegree  || verifyDegree).trim();
+      const certUni     = (overrideUni     || verifyUni).trim();
+      const certYear    = parseInt(overrideYear || verifyYear);
+      const useBatchId  = (overrideBatchId || verifyBatchId).trim();
+
+      if (!certName || !certDegree || !certUni || !certYear || !useBatchId) {
+        showMsg("Please fill in all certificate details.", "warning");
+        setLoading(false);
+        return;
+      }
+
       const provider = new ethers.JsonRpcProvider(
         "https://eth-sepolia.g.alchemy.com/v2/alch_mslyZ-pynP9e20GEMgFDp"
       );
       const readContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
       const cert = {
-        name:       (overrideName       || verifyCertName).trim(),
-        degree:     (overrideDegree     || verifyDegree).trim(),
-        university: (overrideUni        || verifyUni).trim(),
-        year:       parseInt(overrideYear || verifyYear)
+        name:       certName,
+        degree:     certDegree,
+        university: certUni,
+        year:       certYear
       };
-      const useBatchId = (overrideBatchId || verifyBatchId).trim();
       const certHash = hashCertificate(cert);
       const result = await readContract.verifyCertificate(useBatchId, certHash);
 
@@ -337,21 +348,21 @@ export default function App() {
             const proof = getMerkleProof(allLeaves, dbProof.proof_index);
             merkleValid = verifyMerkleProof(certHash, proof, result.merkleRoot);
           } else {
-                setVerifyResult({
-        valid: false, revoked: false,
-            reason: "Certificate details not found in database. Use hash-based verification or scan the QR code.",
-        merkleRoot: result.merkleRoot, issuedAt: result.issuedAt,
-        issuedBy: result.issuedBy, certHash
-          });
-          setLoading(false);
-          return;
+            setVerifyResult({
+              valid: false, revoked: false,
+              reason: "Certificate details not found. Use hash-based verification or scan the QR code.",
+              merkleRoot: result.merkleRoot, issuedAt: result.issuedAt,
+              issuedBy: result.issuedBy, certHash
+            });
+            setLoading(false);
+            return;
           }
         }
       }
 
       setVerifyResult({
         valid: merkleValid, revoked: false,
-        reason: merkleValid ? "" : "Merkle proof failed — certificate not part of this batch",
+        reason: merkleValid ? "" : "Merkle proof failed — certificate details do not match what was issued.",
         merkleRoot: result.merkleRoot, issuedAt: result.issuedAt,
         issuedBy: result.issuedBy, certHash, cert
       });
@@ -660,7 +671,7 @@ export default function App() {
           {verifyMode === "manual" && (
             <Stack spacing={2}>
               <Typography variant="body2" sx={{ color: "#7a8099" }}>
-                Scan the QR code on a certificate for instant verification, or enter details manually.
+                Enter exact certificate details or scan QR code for instant verification.
               </Typography>
               <TextField label="Batch ID" value={verifyBatchId}
                 onChange={e => setVerifyBatchId(e.target.value)} fullWidth sx={inputSx} />
