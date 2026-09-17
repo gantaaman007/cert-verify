@@ -1,9 +1,15 @@
 import { ethers } from "ethers";
 
-export function hashCertificate(cert) {
+export function hashCertificate(cert, batchId = "") {
   return ethers.solidityPackedKeccak256(
-    ["string", "string", "string", "uint256"],
-    [cert.name.trim(), cert.degree.trim(), cert.university.trim(), cert.year]
+    ["string", "string", "string", "string", "uint256"],
+    [
+      batchId.trim().toLowerCase(),
+      cert.name.trim().toLowerCase(),
+      cert.degree.trim().toLowerCase(),
+      cert.university.trim().toLowerCase(),
+      cert.year
+    ]
   );
 }
 
@@ -57,6 +63,16 @@ export function getMerkleProof(leaves, index) {
 
 export function verifyMerkleProof(leaf, proof, root) {
   let computed = leaf;
+
+  if (proof.length === 0) {
+    const combined = [computed, computed].sort();
+    computed = ethers.solidityPackedKeccak256(
+      ["bytes32", "bytes32"],
+      [combined[0], combined[1]]
+    );
+    return computed.toLowerCase() === root.toLowerCase();
+  }
+
   for (const proofElement of proof) {
     const combined = [computed, proofElement].sort();
     computed = ethers.solidityPackedKeccak256(
@@ -64,5 +80,5 @@ export function verifyMerkleProof(leaf, proof, root) {
       [combined[0], combined[1]]
     );
   }
-  return computed === root;
+  return computed.toLowerCase() === root.toLowerCase();
 }

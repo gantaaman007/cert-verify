@@ -311,7 +311,7 @@ export default function App() {
         university: certUni,
         year:       certYear
       };
-      const certHash = hashCertificate(cert);
+      const certHash = hashCertificate(cert, useBatchId);
       const result = await readContract.verifyCertificate(useBatchId, certHash);
 
       if (!result.valid) {
@@ -453,7 +453,7 @@ export default function App() {
     if (!batchId)  { showMsg("Enter a batch ID.", "warning"); return; }
     setLoading(true);
     try {
-      const leaves = students.map(s => hashCertificate(s));
+      const leaves = students.map(s => hashCertificate(s, batchId));
       const { root } = buildMerkleTree(leaves);
       const tx = await contract.proposeBatch(batchId, root);
       const receipt = await tx.wait();

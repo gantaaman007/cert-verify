@@ -1,4 +1,4 @@
-export const CONTRACT_ADDRESS = "0x8D5BC8c59758431DDdaCf6B9D122bAFCBEf87cDF";
+export const CONTRACT_ADDRESS = "0x42e828cafB2ffF70900C6A3f1D5AE970E4b279C1";
 
 export const CONTRACT_ABI = [
   "function addIssuer(address _issuer) external",
