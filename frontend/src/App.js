@@ -206,6 +206,8 @@ export default function App() {
   const [requiredApprovals, setRequiredApprovals] = useState(1);
   const [batchHistory, setBatchHistory]     = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [pendingProposals, setPendingProposals] = useState([]);
+  const [loadingProposals, setLoadingProposals] = useState(false);
 
   const showMsg = (text, severity = "success") => {
     setMessage({ text, severity });
@@ -223,7 +225,7 @@ export default function App() {
         setVerifyResult({
           valid: false, revoked: false,
           reason: "Certificate hash not found in database.",
-          merkleRoot: "", issuedAt: null, issuedBy: "", certHash: certHashInput
+          merkleRoot: "", issuedAt: null, issuedBy: "", certHash: cleanHash
         });
         setLoading(false);
         return;
@@ -233,14 +235,14 @@ export default function App() {
         "https://eth-sepolia.g.alchemy.com/v2/alch_mslyZ-pynP9e20GEMgFDp"
       );
       const readContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
-      const result = await readContract.verifyCertificate(dbProof.batch_id, certHashInput.trim());
+      const result = await readContract.verifyCertificate(dbProof.batch_id, cleanHash);
 
       if (!result.valid) {
         setVerifyResult({
           valid: false, revoked: result.revoked,
           reason: result.reason || "Certificate not valid",
           merkleRoot: result.merkleRoot, issuedAt: result.issuedAt,
-          issuedBy: result.issuedBy, certHash: certHashInput,
+          issuedBy: result.issuedBy, certHash: cleanHash,
           studentName: dbProof.student_name,
           degree: dbProof.degree,
           university: dbProof.university,
@@ -253,13 +255,13 @@ export default function App() {
       const allProofs = await getAllProofsForBatch(dbProof.batch_id);
       const allLeaves = allProofs.map(p => p.leaf);
       const proof = getMerkleProof(allLeaves, dbProof.proof_index);
-      const merkleValid = verifyMerkleProof(certHashInput.trim(), proof, result.merkleRoot);
+      const merkleValid = verifyMerkleProof(cleanHash, proof, result.merkleRoot);
 
       setVerifyResult({
         valid: merkleValid, revoked: false,
         reason: merkleValid ? "" : "Merkle proof failed",
         merkleRoot: result.merkleRoot, issuedAt: result.issuedAt,
-        issuedBy: result.issuedBy, certHash: certHashInput,
+        issuedBy: result.issuedBy, certHash: cleanHash,
         studentName: dbProof.student_name,
         degree: dbProof.degree,
         university: dbProof.university,
@@ -486,17 +488,51 @@ export default function App() {
     setLoading(false);
   };
 
-  const approveBatch = async () => {
+  const approveBatch = async (overrideProposalId) => {
     if (!contract) { showMsg("Connect wallet first.", "warning"); return; }
     setLoading(true);
     try {
-      await (await contract.approveBatch(parseInt(proposalId))).wait();
+      const pid = parseInt(overrideProposalId !== undefined ? overrideProposalId : proposalId);
+      await (await contract.approveBatch(pid)).wait();
       showMsg("Batch approved successfully.");
       setProposalId("");
+      setPendingProposals(prev => prev.filter(p => p.id !== pid));
     } catch (e) {
       showMsg(e.reason || e.message, "error");
     }
     setLoading(false);
+  };
+
+  const loadPendingProposals = async () => {
+    if (!contract || !wallet) {
+      showMsg("Connect wallet first.", "warning");
+      return;
+    }
+    setLoadingProposals(true);
+    try {
+      const count = await contract.proposalCount();
+      const all = [];
+      for (let i = 0; i < Number(count); i++) {
+        const proposal = await contract.getProposal(i);
+        if (!proposal.executed) {
+          const alreadyApproved = await contract.hasApproved(i, wallet);
+          const reqApprovals = await contract.requiredApprovals();
+          all.push({
+            id: i,
+            batchId:        proposal.batchId,
+            proposedBy:     proposal.proposedBy,
+            approvalCount:  Number(proposal.approvalCount),
+            required:       Number(reqApprovals),
+            canApprove:     !alreadyApproved
+          });
+        }
+      }
+      setPendingProposals(all);
+      if (all.length === 0) showMsg("No pending proposals.", "warning");
+    } catch (e) {
+      showMsg(e.message, "error");
+    }
+    setLoadingProposals(false);
   };
 
   const downloadPDF = async (student) => {
@@ -867,17 +903,73 @@ export default function App() {
             </Card>
           )}
 
+          {/* MULTISIG PENDING PROPOSALS */}
           <Card sx={{ mt: 3, background: "#1e2333", border: "1px solid #2a2f42" }}>
             <CardContent>
-              <Typography variant="subtitle2" sx={{ color: "#a78bfa", mb: 2 }}>
-                Approve Pending Proposal (Multisig)
+              <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+                <Typography variant="subtitle2" sx={{ color: "#a78bfa" }}>
+                  Pending Approvals (Multisig)
+                </Typography>
+                <Button size="small" variant="outlined" onClick={loadPendingProposals}
+                  disabled={loadingProposals || !wallet}
+                  sx={{ borderColor: "#a78bfa", color: "#a78bfa" }}>
+                  {loadingProposals
+                    ? <CircularProgress size={16} color="inherit" />
+                    : "Load Pending"}
+                </Button>
+              </Stack>
+
+              {pendingProposals.length === 0 ? (
+                <Typography variant="caption" sx={{ color: "#7a8099" }}>
+                  Connect wallet and click Load Pending to see proposals awaiting approval.
+                </Typography>
+              ) : (
+                <Stack spacing={1}>
+                  {pendingProposals.map((p, i) => (
+                    <Card key={i} sx={{ background: "#171b26", border: "1px solid #2a2f42", p: 1.5 }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Box>
+                          <Typography variant="body2" sx={{ color: "#a78bfa", fontWeight: 600 }}>
+                            {p.batchId}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: "#7a8099", display: "block" }}>
+                            Approvals: {p.approvalCount} / {p.required}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: "#7a8099", display: "block" }}>
+                            Proposed by: {p.proposedBy.substring(0, 10)}...
+                          </Typography>
+                        </Box>
+                        {p.canApprove ? (
+                          <Button size="small" variant="contained"
+                            onClick={() => approveBatch(p.id)}
+                            disabled={loading}
+                            sx={{ background: "#34d399", color: "#000",
+                              "&:hover": { background: "#059669" } }}>
+                            Approve
+                          </Button>
+                        ) : (
+                          <Chip label="Awaiting others"
+                            size="small"
+                            sx={{ background: "#2a2f42", color: "#7a8099" }} />
+                        )}
+                      </Stack>
+                    </Card>
+                  ))}
+                </Stack>
+              )}
+
+              <Divider sx={{ borderColor: "#2a2f42", my: 2 }} />
+              <Typography variant="caption" sx={{ color: "#7a8099", display: "block", mb: 1 }}>
+                Or approve manually by Proposal ID:
               </Typography>
               <Stack direction="row" spacing={2}>
                 <TextField label="Proposal ID" value={proposalId}
                   onChange={e => setProposalId(e.target.value)}
                   size="small" sx={{ ...inputSx, flex: 1 }} />
-                <Button variant="contained" onClick={approveBatch} disabled={loading || !wallet}
-                  sx={{ background: "#34d399", color: "#000", "&:hover": { background: "#059669" } }}>
+                <Button variant="contained" onClick={() => approveBatch()}
+                  disabled={loading || !wallet}
+                  sx={{ background: "#34d399", color: "#000",
+                    "&:hover": { background: "#059669" } }}>
                   {loading ? <CircularProgress size={20} color="inherit" /> : "Approve"}
                 </Button>
               </Stack>
