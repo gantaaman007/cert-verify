@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { ethers } from "ethers";
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "./contract";
 import { hashCertificate, buildMerkleTree, getMerkleProof, verifyMerkleProof } from "./utils/merkle";
-import { saveBatchToDB, getProofFromDB, getAllProofsForBatch, getAllBatches, getProofByHash } from "./db";
+import { saveBatchToDB, savePendingBatch, getPendingBatch, deletePendingBatch, getProofFromDB, getAllProofsForBatch, getAllBatches, getProofByHash } from "./db";
 import { jsPDF } from "jspdf";
 import QRCode from "qrcode";
 import {
@@ -459,8 +459,6 @@ export default function App() {
       const { root } = buildMerkleTree(leaves);
       const tx = await contract.proposeBatch(batchId, root);
       const receipt = await tx.wait();
-      saveProofs(batchId, students, leaves, setProofJson);
-      await saveBatchToDB(batchId, root, wallet, students, leaves);
 
       const executedEvent = receipt.logs.find(log => {
         try { return contract.interface.parseLog(log).name === "BatchExecuted"; }
@@ -468,6 +466,8 @@ export default function App() {
       });
 
       if (executedEvent) {
+        saveProofs(batchId, students, leaves, setProofJson);
+        await saveBatchToDB(batchId, root, wallet, students, leaves);
         showMsg(`Batch issued successfully.`);
         setIssuedBatch({ batchId, students, leaves, root });
       } else {
@@ -477,7 +477,9 @@ export default function App() {
         });
         if (proposedEvent) {
           const parsed = contract.interface.parseLog(proposedEvent);
-          showMsg(`Batch proposed. Proposal ID: ${parsed.args[0]}. Waiting for approvals.`, "warning");
+          const pid = Number(parsed.args[0]);
+          await savePendingBatch(pid, batchId, root, wallet, students, leaves);
+          showMsg(`Batch proposed. Proposal ID: ${pid}. Waiting for approvals.`, "warning");
         }
       }
       setBatchId("");
@@ -493,8 +495,33 @@ export default function App() {
     setLoading(true);
     try {
       const pid = parseInt(overrideProposalId !== undefined ? overrideProposalId : proposalId);
-      await (await contract.approveBatch(pid)).wait();
-      showMsg("Batch approved successfully.");
+      const receipt = await (await contract.approveBatch(pid)).wait();
+
+      const executedEvent = receipt.logs.find(log => {
+        try { return contract.interface.parseLog(log).name === "BatchExecuted"; }
+        catch { return false; }
+      });
+
+      if (executedEvent) {
+        const pending = await getPendingBatch(pid);
+        if (pending) {
+          saveProofs(pending.batch_id, pending.students, pending.leaves, setProofJson);
+          await saveBatchToDB(pending.batch_id, pending.merkle_root, pending.proposed_by, pending.students, pending.leaves);
+          await deletePendingBatch(pid);
+          setIssuedBatch({
+            batchId: pending.batch_id,
+            students: pending.students,
+            leaves: pending.leaves,
+            root: pending.merkle_root
+          });
+          showMsg("Batch approved and executed. Certificates ready to download.");
+        } else {
+          showMsg("Batch approved and executed.");
+        }
+      } else {
+        showMsg("Approval recorded. Waiting for more approvals.", "warning");
+      }
+
       setProposalId("");
       setPendingProposals(prev => prev.filter(p => p.id !== pid));
     } catch (e) {
@@ -519,11 +546,11 @@ export default function App() {
           const reqApprovals = await contract.requiredApprovals();
           all.push({
             id: i,
-            batchId:        proposal.batchId,
-            proposedBy:     proposal.proposedBy,
-            approvalCount:  Number(proposal.approvalCount),
-            required:       Number(reqApprovals),
-            canApprove:     !alreadyApproved
+            batchId:       proposal.batchId,
+            proposedBy:    proposal.proposedBy,
+            approvalCount: Number(proposal.approvalCount),
+            required:      Number(reqApprovals),
+            canApprove:    !alreadyApproved
           });
         }
       }
@@ -624,8 +651,15 @@ export default function App() {
         display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <Typography variant="h6" sx={{ fontWeight: 700, color: "#a78bfa" }}>CertVerify</Typography>
         {wallet ? (
-          <Chip label={`${wallet.substring(0, 6)}...${wallet.substring(38)}`}
-            sx={{ background: "#1e2333", color: "#34d399", border: "1px solid #34d399" }} />
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Chip label={`${wallet.substring(0, 6)}...${wallet.substring(38)}`}
+              sx={{ background: "#1e2333", color: "#34d399", border: "1px solid #34d399" }} />
+            <Button size="small" variant="outlined"
+              onClick={() => { setWallet(null); setContract(null); }}
+              sx={{ borderColor: "#f87171", color: "#f87171", fontSize: 11 }}>
+              Disconnect
+            </Button>
+          </Stack>
         ) : (
           <Button variant="outlined" onClick={connectWallet}
             sx={{ borderColor: "#a78bfa", color: "#a78bfa" }}>Connect Wallet</Button>
@@ -809,7 +843,7 @@ export default function App() {
         <TabPanel value={tab} index={1}>
           <Typography variant="h6" sx={{ mb: 2, color: "#e8eaf0" }}>Issue Certificate Batch</Typography>
           <Typography variant="body2" sx={{ color: "#7a8099", mb: 3 }}>
-            Wallet required. Merkle tree built automatically. Proofs saved to Supabase.
+            Wallet required. Merkle tree built automatically. Proofs saved to Supabase only after full execution.
           </Typography>
           <Stack spacing={2}>
             <TextField label="Batch ID (e.g. MIT-CS-2024-003)" value={batchId}
