@@ -506,7 +506,7 @@ export default function App() {
       );
       const readContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
       const batch = await readContract.getBatch(issuedBatch.batchId);
-      const certHash = hashCertificate(student);
+      const certHash = hashCertificate(student, issuedBatch.batchId);
       await generateCertificatePDF(
         student, issuedBatch.batchId, certHash,
         batch.merkleRoot, batch.issuedAt, batch.issuedBy
