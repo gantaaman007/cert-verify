@@ -1,6 +1,3 @@
-Here's the complete `README.md` file — save this directly as `README.md` in your `C:\Users\ganta\cert-verify` folder:
-
-```markdown
 # CertVerify — Decentralized Certificate Verification System
 
 A blockchain-based certificate verification system built on Ethereum Sepolia testnet. Institutions issue certificates in batches using Merkle trees. Anyone can verify a certificate is genuine without needing a wallet or account.
