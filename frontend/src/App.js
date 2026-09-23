@@ -445,10 +445,16 @@ export default function App() {
   };
 
   const updateStudent = (i, field, value) => {
-    const updated = [...students];
-    updated[i][field] = field === "year" ? parseInt(value) : value;
-    setStudents(updated);
-  };
+  const updated = [...students];
+  if (field === "year") {
+    updated[i][field] = parseInt(value);
+  } else if (field === "name" || field === "degree" || field === "university") {
+    updated[i][field] = value.replace(/[0-9]/g, "");
+  } else {
+    updated[i][field] = value;
+  }
+  setStudents(updated);
+};
 
   const issueBatch = async () => {
     if (!contract) { showMsg("Connect wallet first.", "warning"); return; }
