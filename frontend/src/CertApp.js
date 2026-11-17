@@ -20,7 +20,7 @@ const T = {
   text: "#E8EAF2", muted: "#A8B0C5", dim: "#8E97AE",
   purple: "#8B5CF6", violet: "#A78BFA", green: "#34D399", red: "#F87171", amber: "#FBBF24",
 };
-const SAMPLE_HASH = "0x6e1865c7edaa59c1b74f9bea3d19115d74a9cb760093b7d292f0c0210545eb07"; // sample certificate (batch CSE-004)
+const SAMPLE_HASH = "00x6e1865c7edaa59c1b74f9bea3d19115d74a9cb760093b7d292f0c0210545eb07"; // sample certificate (batch CSE-004)
 const fontCss = `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');`;
 const headFont = "'Space Grotesk', sans-serif";
 const monoFont = "'JetBrains Mono', monospace";
@@ -211,6 +211,7 @@ export default function App() {
   const [tab, setTab]             = useState(0);
   const [wallet, setWallet]       = useState(null);
   const [contract, setContract]   = useState(null);
+  const [isAdmin, setIsAdmin]       = useState(false);
   const [loading, setLoading]     = useState(false);
   const [message, setMessage]     = useState(null);
   const [proofJson, setProofJson] = useState(null);
@@ -435,8 +436,15 @@ export default function App() {
       await provider.send("eth_requestAccounts", []);
       const signer = await provider.getSigner();
       const c = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-      setWallet(await signer.getAddress());
+      const addr = await signer.getAddress();
+      setWallet(addr);
       setContract(c);
+      try {
+        const ownerAddr = await c.owner();
+        setIsAdmin(ownerAddr.toLowerCase() === addr.toLowerCase());
+      } catch {
+        setIsAdmin(false);
+      }
       showMsg("Wallet connected successfully.");
     } catch (e) {
       showMsg(e.message, "error");
@@ -709,7 +717,7 @@ export default function App() {
             <Chip label={`${wallet.substring(0, 6)}...${wallet.substring(38)}`}
               sx={{ background: T.panel2, color: T.green, border: "1px solid rgba(52,211,153,0.4)", fontFamily: monoFont, fontSize: 12 }} />
             <Button size="small" variant="outlined"
-              onClick={() => { setWallet(null); setContract(null); }}
+              onClick={() => { setWallet(null); setContract(null); setIsAdmin(false); }}
               sx={{ borderColor: T.red, color: T.red, fontSize: 11 }}>
               Disconnect
             </Button>
@@ -1117,6 +1125,16 @@ export default function App() {
         {/* ADMIN */}
         <TabPanel value={tab} index={3}>
           <Typography variant="h6" sx={{ mb: 2, color: T.text }}>Admin — Manage Issuers</Typography>
+          {!isAdmin ? (
+            <Card sx={{ background: T.panel2, border: `1px solid ${T.border}`, borderRadius: "18px", p: 3 }}>
+              <Typography sx={{ fontFamily: headFont, fontWeight: 600, fontSize: 20, mb: 1 }}>Admin only</Typography>
+              <Typography variant="body2" sx={{ color: T.muted }}>
+                {wallet
+                  ? "The connected wallet is not the contract admin. Issued batches and issuer controls are hidden."
+                  : "Connect the admin wallet to view issued batches and manage issuers."}
+              </Typography>
+            </Card>
+          ) : (
           <Stack spacing={3}>
 
             <Card sx={{ background: T.panel2, border: `1px solid ${T.border}`, p: 2 }}>
@@ -1200,6 +1218,7 @@ export default function App() {
             </Card>
 
           </Stack>
+          )}
         </TabPanel>
 
       </Container>
