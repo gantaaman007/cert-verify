@@ -20,7 +20,7 @@ const T = {
   text: "#E8EAF2", muted: "#A8B0C5", dim: "#8E97AE",
   purple: "#8B5CF6", violet: "#A78BFA", green: "#34D399", red: "#F87171", amber: "#FBBF24",
 };
-const SAMPLE_HASH = "0xeb2a5b974ed0d6b1051bcd60ce268d12eb96e26a50d8cdfc72b4daefa0d73136"; // sample certificate (batch CSE-004)
+const SAMPLE_HASH = "0x6e1865c7edaa59c1b74f9bea3d19115d74a9cb760093b7d292f0c0210545eb07"; // sample certificate (batch CSE-004)
 const fontCss = `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');`;
 const headFont = "'Space Grotesk', sans-serif";
 const monoFont = "'JetBrains Mono', monospace";
