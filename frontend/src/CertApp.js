@@ -20,7 +20,7 @@ const T = {
   text: "#E8EAF2", muted: "#A8B0C5", dim: "#8E97AE",
   purple: "#8B5CF6", violet: "#A78BFA", green: "#34D399", red: "#F87171", amber: "#FBBF24",
 };
-const SAMPLE_HASH = "00x6e1865c7edaa59c1b74f9bea3d19115d74a9cb760093b7d292f0c0210545eb07"; // sample certificate (batch CSE-004)
+const SAMPLE_HASH = "0x6e1865c7edaa59c1b74f9bea3d19115d74a9cb760093b7d292f0c0210545eb07"; // sample certificate (batch CSE-004)
 const fontCss = `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');`;
 const headFont = "'Space Grotesk', sans-serif";
 const monoFont = "'JetBrains Mono', monospace";
@@ -234,6 +234,9 @@ export default function App() {
 
   const [revokeBatchId, setRevokeBatchId]   = useState("");
   const [revokeReason, setRevokeReason]     = useState("");
+  const [revokeMode, setRevokeMode]         = useState("batch");
+  const [revokeHash, setRevokeHash]         = useState("");
+  const [revokePreview, setRevokePreview]   = useState(null);
   const [issuerAddress, setIssuerAddress]   = useState("");
   const [proposalId, setProposalId]         = useState("");
   const [requiredApprovals, setRequiredApprovals] = useState(1);
@@ -637,6 +640,34 @@ export default function App() {
     } catch (e) {
       showMsg("Could not generate PDF: " + e.message, "error");
     }
+  };
+
+  const lookupRevokeTarget = async () => {
+    const clean = revokeHash.replace(/\s+/g, "").toLowerCase();
+    if (!/^0x[0-9a-f]{64}$/.test(clean)) { showMsg("Enter a valid certificate hash (0x + 64 characters).", "warning"); return; }
+    try {
+      const p = await getProofByHash(clean);
+      setRevokePreview(p || { notFound: true });
+    } catch (e) {
+      showMsg(e.message, "error");
+    }
+  };
+
+  const revokeSingleCertificate = async () => {
+    if (!contract) { showMsg("Connect wallet first.", "warning"); return; }
+    const clean = revokeHash.replace(/\s+/g, "").toLowerCase();
+    if (!/^0x[0-9a-f]{64}$/.test(clean)) { showMsg("Enter a valid certificate hash (0x + 64 characters).", "warning"); return; }
+    if (!revokeReason.trim()) { showMsg("Enter a reason.", "warning"); return; }
+    setLoading(true);
+    try {
+      const tx = await contract.revokeCertificate(clean, revokeReason);
+      await tx.wait();
+      showMsg("Certificate revoked successfully.");
+      setRevokeHash(""); setRevokeReason(""); setRevokePreview(null);
+    } catch (e) {
+      showMsg(e.reason || e.message, "error");
+    }
+    setLoading(false);
   };
 
   const revokeBatch = async () => {
@@ -1109,17 +1140,81 @@ export default function App() {
 
         {/* REVOKE */}
         <TabPanel value={tab} index={2}>
-          <Typography variant="h6" sx={{ mb: 2, color: T.text }}>Revoke a Batch</Typography>
-          <Stack spacing={2}>
-            <TextField label="Batch ID" value={revokeBatchId}
-              onChange={e => setRevokeBatchId(e.target.value)} fullWidth sx={inputSx} />
-            <TextField label="Reason" value={revokeReason}
-              onChange={e => setRevokeReason(e.target.value)} fullWidth multiline rows={3} sx={inputSx} />
-            <Button variant="contained" onClick={revokeBatch} disabled={loading || !wallet}
-              sx={{ background: T.red, "&:hover": { background: "#dc2626" } }}>
-              {loading ? <CircularProgress size={20} color="inherit" /> : "Revoke Batch"}
+          <Typography sx={{ mb: 2, fontFamily: headFont, fontWeight: 700, fontSize: 30, letterSpacing: "-0.02em" }}>
+            Revoke
+          </Typography>
+          <Stack direction="row" spacing={1} mb={3}>
+            <Button size="small" variant={revokeMode === "batch" ? "contained" : "outlined"}
+              onClick={() => setRevokeMode("batch")}
+              sx={revokeMode === "batch"
+                ? { background: T.purple, borderRadius: "8px", textTransform: "none", fontWeight: 600 }
+                : { borderColor: "#2A3047", color: T.muted, borderRadius: "8px", textTransform: "none" }}>
+              Whole batch
+            </Button>
+            <Button size="small" variant={revokeMode === "single" ? "contained" : "outlined"}
+              onClick={() => setRevokeMode("single")}
+              sx={revokeMode === "single"
+                ? { background: T.purple, borderRadius: "8px", textTransform: "none", fontWeight: 600 }
+                : { borderColor: "#2A3047", color: T.muted, borderRadius: "8px", textTransform: "none" }}>
+              Single certificate
             </Button>
           </Stack>
+
+          {revokeMode === "batch" ? (
+            <Stack spacing={2}>
+              <Typography variant="body2" sx={{ color: T.dim }}>
+                Invalidates every certificate in the batch. Use for batch-wide mistakes or a compromised issuer.
+              </Typography>
+              <TextField label="Batch ID" value={revokeBatchId}
+                onChange={e => setRevokeBatchId(e.target.value)} fullWidth sx={inputSx} />
+              <TextField label="Reason" value={revokeReason}
+                onChange={e => setRevokeReason(e.target.value)} fullWidth multiline rows={3} sx={inputSx} />
+              <Button variant="contained" onClick={revokeBatch} disabled={loading || !wallet}
+                sx={{ background: T.red, borderRadius: "10px", textTransform: "none", fontWeight: 600, "&:hover": { background: "#dc2626" } }}>
+                {loading ? <CircularProgress size={20} color="inherit" /> : "Revoke Batch"}
+              </Button>
+            </Stack>
+          ) : (
+            <Stack spacing={2}>
+              <Typography variant="body2" sx={{ color: T.dim }}>
+                Invalidates one certificate only. The rest of the batch stays valid. Paste the certificate hash from the student's PDF.
+              </Typography>
+              <TextField label="Certificate Hash (0x...)" value={revokeHash}
+                onChange={e => { setRevokeHash(e.target.value.replace(/\s+/g, "")); setRevokePreview(null); }}
+                fullWidth sx={inputSx} />
+              <Button variant="outlined" onClick={lookupRevokeTarget}
+                sx={{ borderColor: "#5B4A9E", color: "#C4B5FD", borderRadius: "10px", textTransform: "none", alignSelf: "flex-start" }}>
+                Look up certificate
+              </Button>
+              {revokePreview && (
+                <Card sx={{ background: T.panel2, border: `1px solid ${T.border}`, borderRadius: "14px", p: 2 }}>
+                  {revokePreview.notFound ? (
+                    <Typography variant="body2" sx={{ color: T.amber }}>
+                      Not found in the database. You can still revoke by hash if it is correct.
+                    </Typography>
+                  ) : (
+                    <>
+                      <Typography sx={{ fontFamily: headFont, fontWeight: 600, fontSize: 20 }}>
+                        {revokePreview.student_name}
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: T.muted }}>
+                        {revokePreview.degree} · {revokePreview.university} · {revokePreview.year}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: T.dim }}>
+                        Batch: {revokePreview.batch_id}
+                      </Typography>
+                    </>
+                  )}
+                </Card>
+              )}
+              <TextField label="Reason" value={revokeReason}
+                onChange={e => setRevokeReason(e.target.value)} fullWidth multiline rows={3} sx={inputSx} />
+              <Button variant="contained" onClick={revokeSingleCertificate} disabled={loading || !wallet}
+                sx={{ background: T.red, borderRadius: "10px", textTransform: "none", fontWeight: 600, "&:hover": { background: "#dc2626" } }}>
+                {loading ? <CircularProgress size={20} color="inherit" /> : "Revoke Certificate"}
+              </Button>
+            </Stack>
+          )}
         </TabPanel>
 
         {/* ADMIN */}
